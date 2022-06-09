@@ -1,0 +1,30 @@
+NAME: "Freeze2_layers_without_vertical_flip"
+GPUS: [0, 1]
+FREEZE: true
+# Optimizer & LR scheme
+# 128 batch size did not fit.
+batch_size: 512 # per GPU
+epochs: 40
+# opt: ''
+# momentum: 0.9
+
+#  0.001 was too much apparently.
+# lr: 0.001
+lr: 0.0002
+# lr_scheduler: 'steplr'
+
+# Current train hyps
+# lr_step_size: 15
+# lr_gamma: 0.3
+
+lr_step_size: 20
+lr_gamma: 0.1
+
+# lr: 0.5
+# lr_scheduler: 'cosineannealinglr'
+# lr_warmup_epochs: 5
+# lr_warmup_method: 'linear'
+# lr_warmup_decay: 0.01
+
+# Regularization and Augmentation
+weight_decay: 0.001
