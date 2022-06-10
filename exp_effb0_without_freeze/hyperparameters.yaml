@@ -1,12 +1,14 @@
 GPUS: [2, 3]
-FREEZE: false
+# Detach hooks or not
+DETACH: true
+FREEZE: true
 FROZEN_LAYERS: [1]
-MODEL: "resnet" # resnet or effnet
+
 model_type: "B0"
 
 # Optimizer & LR scheme
 # 128 batch size did not fit.
-batch_size: 32 #256  # per GPU
+batch_size: 64 #256  # per GPU
 workers: 4
 
 epochs: 20

@@ -2,13 +2,13 @@ from pathlib import Path
 import torch
 from torchvision import datasets, transforms
 import yaml
-import networkx as nx
 
 # input image size settings
 GPU_IDS = [0, 1, 2, 3]
 GPU_ID0 = GPU_IDS[0]
 DEVICE = f"cuda:{GPU_ID0}"
 IMG_RES_DICT = {"B0": 224, "B3": 300}
+IMG_RES_RESNET = 224
 DATA_DIR = Path(
     "/home/utku/Documents/repos/dfas_classifier/create_dataset/atis_yönelim_clasification_dataset/classification_dataset_combined"
 )
@@ -21,37 +21,40 @@ DATA_DIR = Path(
 with open("hyperparameters.yaml", "r") as reader:
     hyps = yaml.safe_load(reader)
 
-IMG_RES = IMG_RES_DICT[hyps["model_type"]]
 
-# TODO try without resizing and normalizing images.
+train_transforms = [
+    # NOTE RandomResizedCrop was not useful
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    # NOTE normalization is curcial (created 20% accuracy difference.)
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+]
+val_transforms = [
+    # transforms.Resize((IMG_RES,IMG_RES)),
+    transforms.ToTensor(),
+    # NOTE normalization is realy beneficial (created 20% accuracy difference.)
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+]
+
+if "effnet" in hyps["MODEL"]:
+    IMG_RES = IMG_RES_DICT[hyps["model_type"]]
+elif "resnet" in hyps["MODEL"]:
+    IMG_RES = IMG_RES_RESNET
+
+train_transforms.insert(0, transforms.Resize((IMG_RES, IMG_RES)))
+val_transforms.insert(0, transforms.Resize((IMG_RES, IMG_RES)))
+
+# NOTE no need to resize if resnet
 
 data_transforms = {
-    "train": transforms.Compose(
-        [
-            # transforms.Resize(IMG_RES_B0),
-            transforms.Resize((IMG_RES, IMG_RES)),  # You must resize in effnet.
-            # NOTE RandomResizedCrop was not useful
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            # NOTE normalization is curcial (created 20% accuracy difference.)
-        ]
-    ),
-    "val": transforms.Compose(
-        [
-            # Maybe apply random resized crop.
-            # transforms.Resize((IMG_RES,IMG_RES)),
-            transforms.Resize((IMG_RES, IMG_RES)),  # You must resize in effnet.
-            transforms.ToTensor(),
-            # NOTE normalization is realy beneficial (created 20% accuracy difference.)
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        ]
-    ),
+    "train": transforms.Compose(train_transforms),
+    "val": transforms.Compose(val_transforms),
 }
 
 image_datasets = {
     d_type: datasets.ImageFolder(DATA_DIR / d_type, data_transforms[d_type]) for d_type in ["train", "val"]
 }
+
 
 # pin_memory=True to speed up host to device data transfer with page-locked memory
 dataloaders = {
@@ -64,11 +67,19 @@ dataloaders = {
     )
     for d_type in ["train", "val"]
 }
-
 dataset_sizes = {d_type: len(image_datasets[d_type]) for d_type in ["train", "val"]}
+
+# Test dataloader
+image_testset = datasets.ImageFolder(DATA_DIR / "test", data_transforms["val"])
+test_dataloader = torch.utils.data.DataLoader(
+    image_testset,
+    batch_size=hyps["batch_size"],
+    shuffle=True,
+    num_workers=hyps["workers"],
+    pin_memory=True,
+)
+testset_size = len(image_testset)
+
 class_names = image_datasets["train"].classes
 
-# It is important that the order matches image folder order.
-class_names.append("lastikli")  # to avoid class error in R_constr_matrix
 C_DICT = image_datasets["train"].class_to_idx
-C_DICT["lastikli"] = 18  # Add final element.

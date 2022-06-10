@@ -406,12 +406,12 @@ if __name__ == "__main__":
     dataset_folder_dfas = Path("dataset_new_dfas")
 
     parser_dfas = DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False)
-    parser_dfas.parse()
-    parser_dfas.split_dataset()
+    # parser_dfas.parse()
+    # parser_dfas.split_dataset()
 
     parser_cerkez = DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False)
-    parser_cerkez.parse()
-    parser_cerkez.split_dataset()
+    # parser_cerkez.parse()
+    # parser_cerkez.split_dataset()
 
     dataset_list = [
         "atis_yönelim_clasification_dataset/clasification_dataset_cerkez",
