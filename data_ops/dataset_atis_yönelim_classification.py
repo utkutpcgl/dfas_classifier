@@ -68,43 +68,147 @@ cerkez_lut = {"yok": "dogrultmamis", "dogrultmus": "dogrultmus", "dogrultmamis":
 class_names = {"dogrultmus", "dogrultmamis"}
 
 
+def create_directories(data_parser):
+    # CREATE directories
+    for class_name in class_names:
+        (data_parser.raw_all_dataset / class_name).mkdir(exist_ok=True, parents=True)
+    for split_type in ["train", "val", "test"]:
+        (data_parser.yolo_dataset / split_type).mkdir(exist_ok=True)
+        for class_name in class_names:
+            (data_parser.yolo_dataset / split_type / class_name).mkdir(exist_ok=True)
+
+
+def get_sorted_xml_files_paths(dataset_folder_paths: list):
+    xml_files = []
+    for path in dataset_folder_paths:
+        if path.suffix == ".xml":
+            xml_files.append(path)
+    xml_files.sort()
+    return xml_files
+
+
+def clear_previous_files(data_parser):
+    if data_parser.yolo_dataset.exists():
+        cmd = f"rm -r {data_parser.yolo_dataset}"
+        subprocess.run(cmd, shell=True, check=True)
+
+
+def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
+    """Hardcoded dataset split."""
+
+    def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str = "train"):
+        classes = list(classes_per_split.keys())
+        values = list(classes_per_split.values())
+        plt.figure(figsize=(10, 7))
+        plt.barh(classes, values)
+        plt.xlabel("Classes")
+        plt.ylabel("No of elements")
+        plt.title(plot_name)
+        plt.savefig(plot_name + "_dfas.jpg")
+        plt.clf()
+
+    # 0.75, 0.125, 0.125 -> train,val,test split
+    cmd = f"find {data_parser.raw_all_dataset} -type f | wc -l"
+    num_of_files_stdout = subprocess.run(cmd, check=True, shell=True, stdout=subprocess.PIPE)
+    number_of_images = int(str(num_of_files_stdout.stdout).replace("\\n", "").replace("b", "").replace("'", ""))
+    print("Number of images for classification in dfas dataset folder: ", number_of_images)
+    train_end_index = int(number_of_images * train_ratio)
+    print("Number of images training images: ", train_end_index)
+    number_per_classes_per_split = {
+        data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
+    }
+    for class_folder in data_parser.raw_all_dataset.iterdir():
+        for image_in_class in class_folder.iterdir():
+            if image_in_class.is_file():
+                if old_data_split:
+                    with open("atis_test_image_names.txt", "r") as test_images_reader:
+                        test_image_names = test_images_reader.read().split("\n")
+                        test_image_names.remove("")
+                    with open("atis_val_image_names.txt", "r") as val_images_reader:
+                        val_image_names = val_images_reader.read().split("\n")
+                        val_image_names.remove("")
+                    if image_in_class.name in test_image_names:
+                        data_split = "test"
+                    elif image_in_class.name in val_image_names:
+                        data_split = "val"
+                    else:
+                        data_split = "train"
+                else:
+                    criterion = random.randint(0, 1)
+                    str_image_index = image_in_class.stem.split("_")[-1]
+                    image_index = int(str_image_index)
+                    if image_index <= train_end_index:
+                        data_split = "train"
+                    else:
+                        if criterion == 0:
+                            data_split = "val"
+                        elif criterion == 1:
+                            data_split = "test"
+                number_per_classes_per_split[data_split][class_folder.name] += 1
+                target_image_path = (data_parser.yolo_dataset / data_split) / class_folder.name / image_in_class.name
+                shutil.copyfile(image_in_class, target_image_path)
+    print(number_per_classes_per_split)
+    for split_name, classes_per_split in number_per_classes_per_split.items():
+        plot_bar_graph_per_split(classes_per_split, plot_name=split_name)
+
+
+# Skip the label if the width and height are not appropriate
+def check_filter_bboxes(label, bbox_width, bbox_height, car_h_thr=26, car_wh_thr=18, person_h_thr=20, person_wh_thr=10):
+    words_in_label = label.split(" ")
+    skip_bbox = False
+    if "insan" in words_in_label or "asker" in words_in_label:
+        # Filter for person
+        if person_wh_thr > bbox_width or person_h_thr > bbox_height:
+            skip_bbox = True
+    else:
+        # Filter for car
+        if car_wh_thr > bbox_width or car_h_thr > bbox_height:
+            skip_bbox = True
+    return skip_bbox
+
+
+def combine_datasets(dataset_list, target_dataset=Path("classification_dataset_combined")):
+    target_dataset.mkdir(exist_ok=True)
+    for dataset in dataset_list:
+        # Copy with update, adds missing images to matching folders.
+        cmd = f"cp -ur {dataset}/* {target_dataset}/"
+        subprocess.run(cmd, check=True, shell=True)
+
+
 class DataParserDFAS:
-    def __init__(self, dataset_folder: Path, filter_bbox: bool = False):
+    def __init__(
+        self,
+        dataset_folder: Path,
+        out_yolo_dataset: str = None,
+        filter_bbox: bool = False,
+        clear_prev_files: bool = True,
+    ):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
-        self.yolo_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_dfas")
+        if out_yolo_dataset != None:
+            self.yolo_dataset = out_yolo_dataset
+        else:
+            self.yolo_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_dfas")
         self.raw_all_dataset = self.yolo_dataset / "all"
-        self.create_directories()
+        if clear_prev_files:
+            # Remove previous dataset directory:
+            clear_previous_files(self)
+        create_directories(self)
 
         # Get xml files and image folders.
-        self.dataset_folder_paths = list(self.dataset_folder.iterdir())
-        self.xml_files = self.get_sorted_xml_files_paths(self.dataset_folder_paths)
-        assert (
-            len(self.xml_files) == len(self.dataset_folder_paths) / 2
-        ), "# of xml files is not equal to # of image folders in the path."
+        xml_file_paths = list(folder for folder in self.dataset_folder.iterdir() if folder.suffix == ".xml")
+        self.dataset_folder_paths = list(folder for folder in self.dataset_folder.iterdir() if folder.is_dir())
+        self.xml_files = get_sorted_xml_files_paths(xml_file_paths)
+        assert len(self.xml_files) == len(
+            self.dataset_folder_paths
+        ), f"# of xml files {len(self.xml_files)} is not equal to # of image folders {len(self.dataset_folder_paths)} in the path."
+
         self.image_folders = self.get_sorted_image_folder_paths(self.dataset_folder_paths, self.xml_files)
         assert len(self.xml_files) == len(
             self.image_folders
         ), "# of xml files is not equal to # of image folders after choosing only available label folders."
         self.label_and_image_paths = list(zip(self.xml_files, self.image_folders))
         print(f"There are {len(self.label_and_image_paths)} labelled image folders available.")
-
-    def create_directories(self):
-        # CREATE directories
-        for class_name in class_names:
-            (self.raw_all_dataset / class_name).mkdir(exist_ok=True, parents=True)
-        for split_type in ["train", "val", "test"]:
-            (self.yolo_dataset / split_type).mkdir(exist_ok=True)
-            for class_name in class_names:
-                (self.yolo_dataset / split_type / class_name).mkdir(exist_ok=True)
-
-    def get_sorted_xml_files_paths(self, dataset_folder_paths: list):
-        xml_files = []
-        for path in dataset_folder_paths:
-            if path.suffix == ".xml":
-                xml_files.append(path)
-        xml_files.sort()
-        return xml_files
 
     def get_sorted_image_folder_paths(self, dataset_folder_paths: list, xml_files: list):
         image_folders = []
@@ -123,12 +227,13 @@ class DataParserDFAS:
             image_height = image_props[xmlfile]["height"]
             image_width = image_props[xmlfile]["width"]
             image_path = image_props[xmlfile]["path"]
+            scene_name = Path(image_folder).stem.split("-")[0]  # get only the name
             print(xmlfile)
             print()
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
             all_images = root.findall("image")
-            for img in all_images:
+            for frame_index, img in enumerate(all_images):
                 # img = next(images)
                 img_name = img.get("name")
                 image_path = image_folder / img_name
@@ -172,7 +277,12 @@ class DataParserDFAS:
                         )
                         if skip_bbox:
                             continue
-                    img_path = self.raw_all_dataset / atis_yönelim_label / f"dfas_{str(total_bbox_count)}.jpg"
+
+                    img_path = (
+                        self.raw_all_dataset
+                        / atis_yönelim_label
+                        / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
+                    )
                     cropped_image = cv2_image[ytl:ybr, xtl:xbr, :]
                     cv2.imwrite(str(img_path), cropped_image)
                     total_bbox_count += 1
@@ -188,67 +298,17 @@ class DataParserDFAS:
             img_dims_dict[xml_file] = {"width": width, "height": height, "path": image_folder_path}
         self.process(img_dims_dict)
 
-    def split_dataset(self, train_ratio=4 / 5):
-        """Hardcoded dataset split."""
-
-        def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str = "train"):
-            classes = list(classes_per_split.keys())
-            values = list(classes_per_split.values())
-            plt.figure(figsize=(10, 7))
-            plt.barh(classes, values)
-            plt.xlabel("Classes")
-            plt.ylabel("No of elements")
-            plt.title(plot_name)
-            plt.savefig(plot_name + "_dfas.jpg")
-            plt.clf()
-
-        # 0.75, 0.125, 0.125 -> train,val,test split
-        cmd = f"find {self.raw_all_dataset} -type f | wc -l"
-        num_of_files_stdout = subprocess.run(cmd, check=True, shell=True, stdout=subprocess.PIPE)
-        number_of_images = int(str(num_of_files_stdout.stdout).replace("\\n", "").replace("b", "").replace("'", ""))
-        print("Number of images for classification in dfas dataset folder: ", number_of_images)
-        train_end_index = int(number_of_images * train_ratio)
-        print("Number of images training images: ", train_end_index)
-        number_per_classes_per_split = {
-            data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
-        }
-        for class_folder in self.raw_all_dataset.iterdir():
-            for image_in_class in class_folder.iterdir():
-                criterion = random.randint(0, 1)
-                if image_in_class.is_file():
-                    image_index = int(image_in_class.stem.replace("dfas_", ""))
-                    if image_index <= train_end_index:
-                        data_split = "train"
-                    else:
-                        if criterion == 0:
-                            data_split = "val"
-                        elif criterion == 1:
-                            data_split = "test"
-                    number_per_classes_per_split[data_split][class_folder.name] += 1
-                    target_image_path = (self.yolo_dataset / data_split) / class_folder.name / image_in_class.name
-                    shutil.copyfile(image_in_class, target_image_path)
-        print(number_per_classes_per_split)
-        for split_name, classes_per_split in number_per_classes_per_split.items():
-            plot_bar_graph_per_split(classes_per_split, plot_name=split_name)
-
 
 class DataParserCerkez:
-    def __init__(self, dataset_folder=Path, filter_bbox: bool = False):
+    def __init__(self, dataset_folder=Path, filter_bbox: bool = False, clear_prev_files: bool = False):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
         self.yolo_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_cerkez")
         self.raw_all_dataset = self.yolo_dataset / "all"
-        self.create_directories()
-
-    def create_directories(self):
-        # CREATE directories
-        for class_name in class_names:
-            (self.raw_all_dataset / class_name).mkdir(exist_ok=True, parents=True)
-        # Next level dataset split folders.
-        for split_type in ["train", "val", "test"]:
-            (self.yolo_dataset / split_type).mkdir(exist_ok=True)
-            for class_name in class_names:
-                (self.yolo_dataset / split_type / class_name).mkdir(exist_ok=True)
+        if clear_prev_files:
+            # Remove previous dataset directory:
+            clear_previous_files(self)
+        create_directories(self)
 
     def process(self, xmlfiles: list, videofiles: list) -> None:
         """Process previous cerkez labels to match new dfas label style."""
@@ -257,7 +317,7 @@ class DataParserCerkez:
         for k in range(length):
             video = videofiles[k]
             xmlfile = xmlfiles[k]
-            video_name = Path(video).stem
+            scene_name = Path(video).stem
             cap = cv2.VideoCapture(str(video))
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
@@ -304,70 +364,20 @@ class DataParserCerkez:
                     img_path = (
                         self.raw_all_dataset
                         / atis_yönelim_label
-                        / f"cerkez_{video_name}_{frame_index}_{str(total_bbox_count)}.jpg"
+                        / f"cerkez_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
                     )
                     cropped_image = frame[ytl:ybr, xtl:xbr, :]
                     cv2.imwrite(str(img_path), cropped_image)
                     total_bbox_count += 1
                 # Write image specific labels to yolo label txt
 
-    def split_dataset(self, train_ratio=4 / 5):
-        """Hardcoded dataset split."""
-
-        def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str = "train"):
-            classes = list(classes_per_split.keys())
-            values = list(classes_per_split.values())
-            plt.figure(figsize=(10, 7))
-            plt.barh(classes, values)
-            plt.xlabel("Classes")
-            plt.ylabel("No of elements")
-            plt.title(plot_name)
-            plt.savefig(plot_name + "_cerkez.jpg")
-            plt.clf()
-
-        # 0.75, 0.125, 0.125 -> train,val,test split
-        cmd = f"find {self.raw_all_dataset} -type f | wc -l"
-        num_of_files_stdout = subprocess.run(cmd, check=True, shell=True, stdout=subprocess.PIPE)
-        number_of_images = int(str(num_of_files_stdout.stdout).replace("\\n", "").replace("b", "").replace("'", ""))
-        print("Number of images for classification in cerkez dataset folder: ", number_of_images)
-        train_end_index = int(number_of_images * train_ratio)
-        print("Number of images training images: ", train_end_index)
-        number_per_classes_per_split = {
-            data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
-        }
-        for class_folder in self.raw_all_dataset.iterdir():
-            for image_in_class in class_folder.iterdir():
-                criterion = random.randint(0, 1)
-                if image_in_class.is_file():
-                    str_image_index = image_in_class.stem.split("_")[-1]
-                    image_index = int(str_image_index)
-                    if image_index <= train_end_index:
-                        data_split = "train"
-                    else:
-                        if criterion == 0:
-                            data_split = "val"
-                        elif criterion == 1:
-                            data_split = "test"
-                    number_per_classes_per_split[data_split][class_folder.name] += 1
-                    target_image_path = (self.yolo_dataset / data_split) / class_folder.name / image_in_class.name
-                    shutil.copyfile(image_in_class, target_image_path)
-        print(number_per_classes_per_split)
-        for split_name, classes_per_split in number_per_classes_per_split.items():
-            plot_bar_graph_per_split(classes_per_split, plot_name=split_name)
-
-    def get_sorted_xml_files_paths(self, dataset_folder_paths: list):
-        xml_files = []
-        for path in dataset_folder_paths:
-            if path.suffix == ".xml":
-                xml_files.append(path)
-        xml_files.sort()
-        return xml_files
-
     def parse(self):
-        dataset_folder_paths_cerkez = list(self.dataset_folder.iterdir())
-        xml_files_cerkez = self.get_sorted_xml_files_paths(dataset_folder_paths_cerkez)
-        assert (
-            len(xml_files_cerkez) == len(dataset_folder_paths_cerkez) / 2
+        # Get xml files and image folders.
+        xml_file_paths = list(folder for folder in self.dataset_folder.iterdir() if folder.suffix == ".xml")
+        dataset_folder_paths_cerkez = list(folder for folder in self.dataset_folder.iterdir() if folder.is_dir())
+        xml_files_cerkez = get_sorted_xml_files_paths(xml_file_paths)
+        assert len(xml_files_cerkez) == len(
+            dataset_folder_paths_cerkez
         ), "# of xml files is not equal to # of image folders in the path."
         video_files = []
         for folder in dataset_folder_paths_cerkez:
@@ -378,44 +388,32 @@ class DataParserCerkez:
         self.process(xml_files_cerkez, video_files)
 
 
-# Skip the label if the width and height are not appropriate
-def check_filter_bboxes(label, bbox_width, bbox_height, car_h_thr=26, car_wh_thr=18, person_h_thr=20, person_wh_thr=10):
-    words_in_label = label.split(" ")
-    skip_bbox = False
-    if "insan" in words_in_label or "asker" in words_in_label:
-        # Filter for person
-        if person_wh_thr > bbox_width or person_h_thr > bbox_height:
-            skip_bbox = True
-    else:
-        # Filter for car
-        if car_wh_thr > bbox_width or car_h_thr > bbox_height:
-            skip_bbox = True
-    return skip_bbox
-
-
-def combine_datasets(dataset_list, target_dataset=Path("classification_dataset_combined")):
-    target_dataset.mkdir(exist_ok=True)
-    for dataset in dataset_list:
-        # Copy with update, adds missing images to matching folders.
-        cmd = f"cp -ur {dataset}/* {target_dataset}/"
-        subprocess.run(cmd, check=True, shell=True)
-
-
 if __name__ == "__main__":
-    dataset_folder_cerkez = Path("dataset_new_cerkez")
-    dataset_folder_dfas = Path("dataset_new_dfas")
+    dataset_folder_cerkez = Path("/home/utku/Documents/raw_datasets/dataset_new_cerkez")
+    dataset_folder_dfas = Path("/home/utku/Documents/raw_datasets/dataset_new_dfas")
+    dataset_folder_serefli3 = Path("/home/utku/Documents/raw_datasets/dataset_new_serefli3")
+
+    parser_ser3 = DataParserDFAS(
+        dataset_folder=dataset_folder_serefli3,
+        out_yolo_dataset="atis_yönelim_clasification_dataset/yolo_dataset_ser3",
+        filter_bbox=False,
+        clear_prev_files=True,
+    )
+    parser_ser3.parse()
+    split_dataset(parser_ser3, train_ratio=3 / 4)
 
     parser_dfas = DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False)
-    # parser_dfas.parse()
-    # parser_dfas.split_dataset()
+    parser_dfas.parse()
+    split_dataset(parser_dfas)
 
     parser_cerkez = DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False)
-    # parser_cerkez.parse()
-    # parser_cerkez.split_dataset()
+    parser_cerkez.parse()
+    split_dataset(parser_cerkez)
 
     dataset_list = [
-        "atis_yönelim_clasification_dataset/clasification_dataset_cerkez",
-        "atis_yönelim_clasification_dataset/clasification_dataset_dfas",
+        "atis_yönelim_clasification_dataset/yolo_dataset_cerkez",
+        "atis_yönelim_clasification_dataset/yolo_dataset_dfas",
+        "atis_yönelim_clasification_dataset/yolo_dataset_ser3",
     ]
     combine_datasets(
         dataset_list, target_dataset=Path("atis_yönelim_clasification_dataset/classification_dataset_combined")
