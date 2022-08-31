@@ -47,6 +47,7 @@ elif model == "effnet":
     # Multi GPU train
     net = effnet_single
 
+net = net.to(DEVICE)
 # net = torch.nn.DataParallel(net, device_ids = GPU_IDS)
 # NOTE you can add atış yönelimi with the head below.
 # direction_of_fire_classification_head = torch.nn.Linear(in_features = net.fc.in_features, out_features = NUMBER_OF_CLASSES)
