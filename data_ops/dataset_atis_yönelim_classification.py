@@ -120,7 +120,9 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
         data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
     }
     for class_folder in data_parser.raw_all_dataset.iterdir():
-        for image_in_class in class_folder.iterdir():
+        ic(class_folder)
+        class_folder_list = list(class_folder.iterdir())
+        for image_in_class in tqdm(class_folder_list):
             if image_in_class.is_file():
                 if old_data_split:
                     with open("atis_test_image_names.txt", "r") as test_images_reader:
@@ -237,7 +239,8 @@ class DataParserDFAS:
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
             all_images = root.findall("image")
-            for frame_index, img in tqdm(enumerate(all_images)):
+            enumerated_all_images = list(enumerate(all_images))
+            for frame_index, img in tqdm(enumerated_all_images):
                 # img = next(images)
                 img_name = img.get("name")
                 # TODO check if the image width height is the same in the xml annotation file and scale accordingly.
