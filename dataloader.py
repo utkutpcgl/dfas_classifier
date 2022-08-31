@@ -10,7 +10,7 @@ DEVICE = f"cuda:{GPU_ID0}"
 IMG_RES_DICT = {"B0": 224, "B3": 300}
 IMG_RES_RESNET = 224
 DATA_DIR = Path(
-    "/home/utku/Documents/repos/dfas_classifier/create_dataset/atis_yönelim_clasification_dataset/classification_dataset_combined"
+    "/home/utku/Documents/repos/dfas_classifier/data_ops/atis_yönelim_clasification_dataset/classification_dataset_combined"
 )
 
 # TODO discarded "atış", "araçlı_atış", "siper_mevzi" for now
@@ -21,30 +21,33 @@ DATA_DIR = Path(
 with open("hyperparameters.yaml", "r") as reader:
     hyps = yaml.safe_load(reader)
 
-
-train_transforms = [
-    # NOTE RandomResizedCrop was not useful
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    # NOTE normalization is curcial (created 20% accuracy difference.)
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-]
-val_transforms = [
-    # transforms.Resize((IMG_RES,IMG_RES)),
-    transforms.ToTensor(),
-    # NOTE normalization is realy beneficial (created 20% accuracy difference.)
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-]
-
 if "effnet" in hyps["MODEL"]:
     IMG_RES = IMG_RES_DICT[hyps["model_type"]]
 elif "resnet" in hyps["MODEL"]:
     IMG_RES = IMG_RES_RESNET
 
-train_transforms.insert(0, transforms.Resize((IMG_RES, IMG_RES)))
-val_transforms.insert(0, transforms.Resize((IMG_RES, IMG_RES)))
+# Transforms
+# NOTE resize can work on PIL images and returns pil image.
+RESIZE = transforms.Resize((IMG_RES, IMG_RES))
+TO_TENSOR = transforms.ToTensor()
+NORMALIZE = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+H_FLIP = transforms.RandomHorizontalFlip()
 
-# NOTE no need to resize if resnet
+train_transforms = [
+    # NOTE RandomResizedCrop was not useful
+    RESIZE,
+    H_FLIP,
+    TO_TENSOR,
+    # NOTE normalization is curcial (created 20% accuracy difference.)
+    NORMALIZE,
+]
+val_transforms = [
+    RESIZE,
+    TO_TENSOR,
+    # NOTE normalization is realy beneficial (created 20% accuracy difference.)
+    NORMALIZE,
+]
+
 
 data_transforms = {
     "train": transforms.Compose(train_transforms),
@@ -68,6 +71,7 @@ dataloaders = {
     for d_type in ["train", "val"]
 }
 dataset_sizes = {d_type: len(image_datasets[d_type]) for d_type in ["train", "val"]}
+TRAIN_PATH = DATA_DIR / "train"
 
 # Test dataloader
 image_testset = datasets.ImageFolder(DATA_DIR / "test", data_transforms["val"])
@@ -79,6 +83,7 @@ test_dataloader = torch.utils.data.DataLoader(
     pin_memory=True,
 )
 testset_size = len(image_testset)
+TEST_PATH = DATA_DIR / "test"
 
 class_names = image_datasets["train"].classes
 
