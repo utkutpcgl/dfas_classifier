@@ -7,6 +7,8 @@ import networkx as nx
 import shutil
 import subprocess
 from matplotlib import pyplot as plt
+from tqdm import tqdm
+from icecream import ic
 
 """
 Create classification dataset for torchvision. Folders should be named after classes in train/val/test folders.
@@ -73,9 +75,9 @@ def create_directories(data_parser):
     for class_name in class_names:
         (data_parser.raw_all_dataset / class_name).mkdir(exist_ok=True, parents=True)
     for split_type in ["train", "val", "test"]:
-        (data_parser.yolo_dataset / split_type).mkdir(exist_ok=True)
+        (data_parser.classification_dataset / split_type).mkdir(exist_ok=True)
         for class_name in class_names:
-            (data_parser.yolo_dataset / split_type / class_name).mkdir(exist_ok=True)
+            (data_parser.classification_dataset / split_type / class_name).mkdir(exist_ok=True)
 
 
 def get_sorted_xml_files_paths(dataset_folder_paths: list):
@@ -88,8 +90,8 @@ def get_sorted_xml_files_paths(dataset_folder_paths: list):
 
 
 def clear_previous_files(data_parser):
-    if data_parser.yolo_dataset.exists():
-        cmd = f"rm -r {data_parser.yolo_dataset}"
+    if data_parser.classification_dataset.exists():
+        cmd = f"rm -r {data_parser.classification_dataset}"
         subprocess.run(cmd, shell=True, check=True)
 
 
@@ -111,9 +113,9 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
     cmd = f"find {data_parser.raw_all_dataset} -type f | wc -l"
     num_of_files_stdout = subprocess.run(cmd, check=True, shell=True, stdout=subprocess.PIPE)
     number_of_images = int(str(num_of_files_stdout.stdout).replace("\\n", "").replace("b", "").replace("'", ""))
-    print("Number of images for classification in dfas dataset folder: ", number_of_images)
+    ic("Number of images for classification in dfas dataset folder: ", number_of_images)
     train_end_index = int(number_of_images * train_ratio)
-    print("Number of images training images: ", train_end_index)
+    ic("Number of images training images: ", train_end_index)
     number_per_classes_per_split = {
         data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
     }
@@ -145,9 +147,11 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
                         elif criterion == 1:
                             data_split = "test"
                 number_per_classes_per_split[data_split][class_folder.name] += 1
-                target_image_path = (data_parser.yolo_dataset / data_split) / class_folder.name / image_in_class.name
+                target_image_path = (
+                    (data_parser.classification_dataset / data_split) / class_folder.name / image_in_class.name
+                )
                 shutil.copyfile(image_in_class, target_image_path)
-    print(number_per_classes_per_split)
+    ic(number_per_classes_per_split)
     for split_name, classes_per_split in number_per_classes_per_split.items():
         plot_bar_graph_per_split(classes_per_split, plot_name=split_name)
 
@@ -179,17 +183,17 @@ class DataParserDFAS:
     def __init__(
         self,
         dataset_folder: Path,
-        out_yolo_dataset: str = None,
+        out_classification_dataset: str = None,
         filter_bbox: bool = False,
         clear_prev_files: bool = True,
     ):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
-        if out_yolo_dataset != None:
-            self.yolo_dataset = out_yolo_dataset
+        if out_classification_dataset != None:
+            self.classification_dataset = Path(out_classification_dataset)
         else:
-            self.yolo_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_dfas")
-        self.raw_all_dataset = self.yolo_dataset / "all"
+            self.classification_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_dfas")
+        self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
             clear_previous_files(self)
@@ -208,7 +212,7 @@ class DataParserDFAS:
             self.image_folders
         ), "# of xml files is not equal to # of image folders after choosing only available label folders."
         self.label_and_image_paths = list(zip(self.xml_files, self.image_folders))
-        print(f"There are {len(self.label_and_image_paths)} labelled image folders available.")
+        ic(f"There are {len(self.label_and_image_paths)} labelled image folders available.")
 
     def get_sorted_image_folder_paths(self, dataset_folder_paths: list, xml_files: list):
         image_folders = []
@@ -228,15 +232,23 @@ class DataParserDFAS:
             image_width = image_props[xmlfile]["width"]
             image_path = image_props[xmlfile]["path"]
             scene_name = Path(image_folder).stem.split("-")[0]  # get only the name
-            print(xmlfile)
-            print()
+            ic(xmlfile)
+            ic()
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
             all_images = root.findall("image")
-            for frame_index, img in enumerate(all_images):
+            for frame_index, img in tqdm(enumerate(all_images)):
                 # img = next(images)
                 img_name = img.get("name")
-                image_path = image_folder / img_name
+                # TODO check if the image width height is the same in the xml annotation file and scale accordingly.
+                xml_img_width = int(img.get("width"))
+                xml_img_height = int(img.get("height"))
+                assert (xml_img_height / xml_img_width) == (
+                    image_height / image_width
+                ), f"{xml_img_height / xml_img_width}!={image_height  / image_width}"
+                if xml_img_width != image_width:
+                    scale_pixels = image_width / xml_img_width
+                image_path = image_folder / f"{scene_name}--{img_name}"
                 cv2_image = cv2.imread(str(image_path))
                 for box in img.iter("box"):
                     # label extraction.
@@ -254,16 +266,14 @@ class DataParserDFAS:
                     atis_yönelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
                     atis_yönelim_label = dfas_lut[atis_yönelim]
 
-                    xtl = int(round(float(box.get("xtl"))))
+                    # Scale if the annotation file does not have the correct image resolution.
+                    xtl = int(round(float(box.get("xtl"))) * scale_pixels)
                     if xtl < 0:
                         xtl = 0
-                    ytl = int(round(float(box.get("ytl"))))
-                    xbr = int(round(float(box.get("xbr"))))
-                    ybr = int(round(float(box.get("ybr"))))
+                    ytl = int(round(float(box.get("ytl"))) * scale_pixels)
+                    xbr = int(round(float(box.get("xbr"))) * scale_pixels)
+                    ybr = int(round(float(box.get("ybr"))) * scale_pixels)
 
-                    img_size = image_width * image_height
-                    if img_size < 1200:
-                        continue  # Discard if image resolution is less than 1200.
                     # for output vector
                     # YOLO label conversion
                     # Normalize the pixel coordinates for yolo
@@ -292,7 +302,7 @@ class DataParserDFAS:
         for xml_file, image_folder_path in self.label_and_image_paths:
             image_folder_list = list(im for im in image_folder_path.iterdir() if im.suffix in [".png", ".jpg", ".jpeg"])
             an_image_path_in_folder = image_folder_list[0]
-            print(an_image_path_in_folder)
+            ic(an_image_path_in_folder)
             temp_img = cv2.imread(str(an_image_path_in_folder))
             height, width, channels = temp_img.shape
             img_dims_dict[xml_file] = {"width": width, "height": height, "path": image_folder_path}
@@ -303,8 +313,8 @@ class DataParserCerkez:
     def __init__(self, dataset_folder=Path, filter_bbox: bool = False, clear_prev_files: bool = False):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
-        self.yolo_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_cerkez")
-        self.raw_all_dataset = self.yolo_dataset / "all"
+        self.classification_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_cerkez")
+        self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
             clear_previous_files(self)
@@ -317,18 +327,21 @@ class DataParserCerkez:
         for k in range(length):
             video = videofiles[k]
             xmlfile = xmlfiles[k]
+            print(f"{xmlfile}, is {k}th video out of {length} videos")
             scene_name = Path(video).stem
             cap = cv2.VideoCapture(str(video))
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
-            images = root.iter("image")
+            images_list = list(image for image in root.iter("image"))
+            total_images = len(images_list)
             frame_index = 0
             while cap.isOpened():
                 retval, frame = cap.read()
                 if not retval:
                     break
                 frame_index += 1
-                img = next(images)
+                print(f"DataParserCerkez progress [%d/{total_images}] \r" % frame_index, end="")
+                img = images_list[frame_index]
                 for box in img.iter("box"):
                     # label extraction.
                     box_dict = {}
@@ -360,7 +373,6 @@ class DataParserCerkez:
                         )
                         if skip_bbox:
                             continue
-
                     img_path = (
                         self.raw_all_dataset
                         / atis_yönelim_label
@@ -393,28 +405,32 @@ if __name__ == "__main__":
     dataset_folder_dfas = Path("/home/utku/Documents/raw_datasets/dataset_new_dfas")
     dataset_folder_serefli3 = Path("/home/utku/Documents/raw_datasets/dataset_new_serefli3")
 
-    parser_ser3 = DataParserDFAS(
-        dataset_folder=dataset_folder_serefli3,
-        out_yolo_dataset="atis_yönelim_clasification_dataset/yolo_dataset_ser3",
-        filter_bbox=False,
-        clear_prev_files=True,
+    parser_ser3 = ic(
+        DataParserDFAS(
+            dataset_folder=dataset_folder_serefli3,
+            out_classification_dataset="atis_yönelim_clasification_dataset/classification_dataset_ser3",
+            filter_bbox=False,
+            clear_prev_files=True,
+        )
     )
-    parser_ser3.parse()
-    split_dataset(parser_ser3, train_ratio=3 / 4)
+    ic(parser_ser3.parse())
+    ic(split_dataset(parser_ser3, train_ratio=3 / 4))
 
-    parser_dfas = DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False)
-    parser_dfas.parse()
-    split_dataset(parser_dfas)
+    parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
+    ic(parser_dfas.parse())
+    ic(split_dataset(parser_dfas))
 
-    parser_cerkez = DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False)
-    parser_cerkez.parse()
-    split_dataset(parser_cerkez)
+    parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
+    ic(parser_cerkez.parse())
+    ic(split_dataset(parser_cerkez))
 
     dataset_list = [
-        "atis_yönelim_clasification_dataset/yolo_dataset_cerkez",
-        "atis_yönelim_clasification_dataset/yolo_dataset_dfas",
-        "atis_yönelim_clasification_dataset/yolo_dataset_ser3",
+        "atis_yönelim_clasification_dataset/classification_dataset_cerkez",
+        "atis_yönelim_clasification_dataset/classification_dataset_dfas",
+        "atis_yönelim_clasification_dataset/classification_dataset_ser3",
     ]
-    combine_datasets(
-        dataset_list, target_dataset=Path("atis_yönelim_clasification_dataset/classification_dataset_combined")
+    ic(
+        combine_datasets(
+            dataset_list, target_dataset=Path("atis_yönelim_clasification_dataset/classification_dataset_combined")
+        )
     )
