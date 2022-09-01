@@ -127,10 +127,10 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_na
     }
     for class_folder in data_parser.raw_all_dataset.iterdir():
         ic(class_folder)
-        class_folder_list = list(enumerate(list(class_folder.iterdir())))
-        class_folder_len = len(class_folder_list)
+        enumerated_class_folder_list = list(enumerate(list(class_folder.iterdir())))
+        class_folder_len = len(enumerated_class_folder_list)
         class_train_end_index = int(class_folder_len * train_ratio)
-        for image_index, image_in_class in tqdm(class_folder_list):
+        for image_index, image_in_class in tqdm(enumerated_class_folder_list):
             if image_in_class.is_file():
                 if old_data_split:
                     with open("atis_test_image_names.txt", "r") as test_images_reader:
@@ -147,9 +147,6 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_na
                         data_split = "train"
                 else:
                     criterion = random.randint(0, 1)
-                    # str_image_index = image_in_class.stem.split("_")[-1]
-                    # image_index = int(str_image_index)
-                    # if image_index <= train_end_index:
                     if image_index <= class_train_end_index:
                         data_split = "train"
                     else:
