@@ -247,27 +247,20 @@ class DataParserDFAS:
             all_images = root.findall("image")
 
             enumerated_all_images = list(enumerate(all_images))
-            for frame_index, img in tqdm(enumerated_all_images):
-                # img = next(images)
-                img_name = img.get("name")
-                # TODO check if the image width height is the same in the xml annotation file and scale accordingly.
-                xml_img_width = int(img.get("width"))
-                xml_img_height = int(img.get("height"))
-                assert (xml_img_height / xml_img_width) == (
-                    image_height / image_width
-                ), f"{xml_img_height / xml_img_width}!={image_height  / image_width}"
-                scale_pixels = 1
-                if xml_img_width != image_width:
-                    scale_pixels = image_width / xml_img_width
-                image_path = image_folder / f"{scene_name}--{img_name}"
-                cv2_image = cv2.imread(str(image_path))
-                for box in img.iter("box"):
-                    total_bbox_count = self.crop_box(
-                        box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False
-                    )
+            for frame_index_img_tuple in tqdm(enumerated_all_images):
+                total_bbox_count = self.process_image(
+                    frame_index_img_tuple,
+                    image_height,
+                    image_width,
+                    scene_name,
+                    image_folder,
+                    total_bbox_count,
+                    multi_proc=False,
+                )
 
     def process_mp(self, image_props: list):
-        total_bbox_count = 0
+        multi_proc = True
+        total_bbox_count = Value("i", 0)  # has to be multiproc value in multiprocessing.
         for xmlfile, image_folder in self.label_and_image_paths:
             image_height = image_props[xmlfile]["height"]
             image_width = image_props[xmlfile]["width"]
@@ -280,7 +273,6 @@ class DataParserDFAS:
             all_images = root.findall("image")
 
             enumerated_all_images = list(enumerate(all_images))
-
             number_of_image_packets = math.ceil(len(enumerated_all_images) / PROC_NUM)
             with Pool(processes=PROC_NUM) as pool:
                 for idx in tqdm(range(number_of_image_packets)):
@@ -288,15 +280,41 @@ class DataParserDFAS:
                     enumerated_image_list = enumerated_all_images[start_idx : start_idx + PROC_NUM]
                     process_args = zip(
                         enumerated_image_list,
-                        box,
-                        scale_pixels,
-                        scene_name,
-                        frame_index,
-                        cv2_image,
+                        repeat(image_height),
+                        repeat(image_width),
+                        repeat(scene_name),
+                        repeat(image_folder),
                         total_bbox_count,
-                        multiproc=False,
+                        repeat(multi_proc),
                     )
-                    pool.starmap(func=self.crop_box, iterable=process_args)
+                    pool.starmap(func=self.process_image, iterable=process_args)
+
+    def process_image(
+        self, frame_index_img_tuple, image_height, image_width, scene_name, image_folder, total_bbox_count, multi_proc
+    ):
+        frame_index, img = frame_index_img_tuple
+        # img = next(images)
+        img_name = img.get("name")
+        # TODO check if the image width height is the same in the xml annotation file and scale accordingly.
+        xml_img_width = int(img.get("width"))
+        xml_img_height = int(img.get("height"))
+        assert (xml_img_height / xml_img_width) == (
+            image_height / image_width
+        ), f"{xml_img_height / xml_img_width}!={image_height  / image_width}"
+        scale_pixels = 1
+        if xml_img_width != image_width:
+            scale_pixels = image_width / xml_img_width
+        image_path = image_folder / f"{scene_name}--{img_name}"
+        cv2_image = cv2.imread(str(image_path))
+        if multi_proc:
+            for box in img.iter("box"):
+                self.crop_box(box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=True)
+        else:
+            for box in img.iter("box"):
+                total_bbox_count = self.crop_box(
+                    box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False
+                )
+        return total_bbox_count
 
     def crop_box(self, box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False):
         # label extraction.
