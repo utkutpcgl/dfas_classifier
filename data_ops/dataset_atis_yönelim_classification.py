@@ -7,9 +7,15 @@ import networkx as nx
 import shutil
 import subprocess
 from matplotlib import pyplot as plt
+from sklearn.preprocessing import scale
 from tqdm import tqdm
 from icecream import ic
+from multiprocessing import Pool, Value
+import math
+from itertools import repeat
 
+
+PROC_NUM = 8
 """
 Create classification dataset for torchvision. Folders should be named after classes in train/val/test folders.
 """
@@ -95,10 +101,10 @@ def clear_previous_files(data_parser):
         subprocess.run(cmd, shell=True, check=True)
 
 
-def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
+def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_name: str = "dfas"):
     """Hardcoded dataset split."""
 
-    def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str = "train"):
+    def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str):
         classes = list(classes_per_split.keys())
         values = list(classes_per_split.values())
         plt.figure(figsize=(10, 7))
@@ -106,7 +112,7 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
         plt.xlabel("Classes")
         plt.ylabel("No of elements")
         plt.title(plot_name)
-        plt.savefig(plot_name + "_dfas.jpg")
+        plt.savefig(plot_name)
         plt.clf()
 
     # 0.75, 0.125, 0.125 -> train,val,test split
@@ -121,8 +127,10 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
     }
     for class_folder in data_parser.raw_all_dataset.iterdir():
         ic(class_folder)
-        class_folder_list = list(class_folder.iterdir())
-        for image_in_class in tqdm(class_folder_list):
+        class_folder_list = list(enumerate(list(class_folder.iterdir())))
+        class_folder_len = len(class_folder_list)
+        class_train_end_index = int(class_folder_len * train_ratio)
+        for image_index, image_in_class in tqdm(class_folder_list):
             if image_in_class.is_file():
                 if old_data_split:
                     with open("atis_test_image_names.txt", "r") as test_images_reader:
@@ -139,9 +147,10 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
                         data_split = "train"
                 else:
                     criterion = random.randint(0, 1)
-                    str_image_index = image_in_class.stem.split("_")[-1]
-                    image_index = int(str_image_index)
-                    if image_index <= train_end_index:
+                    # str_image_index = image_in_class.stem.split("_")[-1]
+                    # image_index = int(str_image_index)
+                    # if image_index <= train_end_index:
+                    if image_index <= class_train_end_index:
                         data_split = "train"
                     else:
                         if criterion == 0:
@@ -155,7 +164,7 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False):
                 shutil.copyfile(image_in_class, target_image_path)
     ic(number_per_classes_per_split)
     for split_name, classes_per_split in number_per_classes_per_split.items():
-        plot_bar_graph_per_split(classes_per_split, plot_name=split_name)
+        plot_bar_graph_per_split(classes_per_split, plot_name=f"{scene_name}_{split_name}")
 
 
 # Skip the label if the width and height are not appropriate
@@ -239,6 +248,7 @@ class DataParserDFAS:
             xml_tree = ET.parse(xmlfile)
             root = xml_tree.getroot()
             all_images = root.findall("image")
+
             enumerated_all_images = list(enumerate(all_images))
             for frame_index, img in tqdm(enumerated_all_images):
                 # img = next(images)
@@ -249,56 +259,104 @@ class DataParserDFAS:
                 assert (xml_img_height / xml_img_width) == (
                     image_height / image_width
                 ), f"{xml_img_height / xml_img_width}!={image_height  / image_width}"
+                scale_pixels = 1
                 if xml_img_width != image_width:
                     scale_pixels = image_width / xml_img_width
                 image_path = image_folder / f"{scene_name}--{img_name}"
                 cv2_image = cv2.imread(str(image_path))
                 for box in img.iter("box"):
-                    # label extraction.
-                    # includes all classes (without doğrultmuş/doğrultmamış ve lastik_palet_izi.)
-                    label = box.get("label")
-                    # We only care about tanks currently.
-                    if label not in dfas_tanks:
-                        continue
-
-                    box_dict = {}
-                    for attr in box.iter("attribute"):
-                        attr_name = attr.get("name")
-                        answer = attr.text
-                        box_dict[attr_name] = answer
-                    atis_yönelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
-                    atis_yönelim_label = dfas_lut[atis_yönelim]
-
-                    # Scale if the annotation file does not have the correct image resolution.
-                    xtl = int(round(float(box.get("xtl"))) * scale_pixels)
-                    if xtl < 0:
-                        xtl = 0
-                    ytl = int(round(float(box.get("ytl"))) * scale_pixels)
-                    xbr = int(round(float(box.get("xbr"))) * scale_pixels)
-                    ybr = int(round(float(box.get("ybr"))) * scale_pixels)
-
-                    # for output vector
-                    # YOLO label conversion
-                    # Normalize the pixel coordinates for yolo
-                    bbox_width = xbr - xtl
-                    bbox_height = ybr - ytl
-
-                    # Skip bbox if too small.
-                    if self.filter_bbox:
-                        skip_bbox = check_filter_bboxes(
-                            atis_yönelim_label, bbox_width=bbox_width, bbox_height=bbox_height
-                        )
-                        if skip_bbox:
-                            continue
-
-                    img_path = (
-                        self.raw_all_dataset
-                        / atis_yönelim_label
-                        / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
+                    total_bbox_count = self.crop_box(
+                        box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False
                     )
-                    cropped_image = cv2_image[ytl:ybr, xtl:xbr, :]
-                    cv2.imwrite(str(img_path), cropped_image)
-                    total_bbox_count += 1
+
+    def process_mp(self, image_props: list):
+        total_bbox_count = 0
+        for xmlfile, image_folder in self.label_and_image_paths:
+            image_height = image_props[xmlfile]["height"]
+            image_width = image_props[xmlfile]["width"]
+            image_path = image_props[xmlfile]["path"]
+            scene_name = Path(image_folder).stem.split("-")[0]  # get only the name
+            ic(xmlfile)
+            ic()
+            xml_tree = ET.parse(xmlfile)
+            root = xml_tree.getroot()
+            all_images = root.findall("image")
+
+            enumerated_all_images = list(enumerate(all_images))
+
+            number_of_image_packets = math.ceil(len(enumerated_all_images) / PROC_NUM)
+            with Pool(processes=PROC_NUM) as pool:
+                for idx in tqdm(range(number_of_image_packets)):
+                    start_idx = idx * PROC_NUM
+                    enumerated_image_list = enumerated_all_images[start_idx : start_idx + PROC_NUM]
+                    process_args = zip(
+                        enumerated_image_list,
+                        box,
+                        scale_pixels,
+                        scene_name,
+                        frame_index,
+                        cv2_image,
+                        total_bbox_count,
+                        multiproc=False,
+                    )
+                    pool.starmap(func=self.crop_box, iterable=process_args)
+
+    def crop_box(self, box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False):
+        # label extraction.
+        # includes all classes (without doğrultmuş/doğrultmamış ve lastik_palet_izi.)
+        label = box.get("label")
+        # We only care about tanks currently.
+        if label not in dfas_tanks:
+            return
+
+        box_dict = {}
+        for attr in box.iter("attribute"):
+            attr_name = attr.get("name")
+            answer = attr.text
+            box_dict[attr_name] = answer
+        atis_yönelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
+        atis_yönelim_label = dfas_lut[atis_yönelim]
+
+        # Scale if the annotation file does not have the correct image resolution.
+        xtl = int(round(float(box.get("xtl"))) * scale_pixels)
+        if xtl < 0:
+            xtl = 0
+        ytl = int(round(float(box.get("ytl"))) * scale_pixels)
+        xbr = int(round(float(box.get("xbr"))) * scale_pixels)
+        ybr = int(round(float(box.get("ybr"))) * scale_pixels)
+
+        # for output vector
+        # YOLO label conversion
+        # Normalize the pixel coordinates for yolo
+        bbox_width = xbr - xtl
+        bbox_height = ybr - ytl
+
+        # Skip bbox if too small.
+        if self.filter_bbox:
+            skip_bbox = check_filter_bboxes(atis_yönelim_label, bbox_width=bbox_width, bbox_height=bbox_height)
+            if skip_bbox:
+                return
+
+        if multiproc:
+            with total_bbox_count.get_lock():
+                # lock the total_bbox_count value to avoid race conditions in multiprocessing.
+                img_path = (
+                    self.raw_all_dataset
+                    / atis_yönelim_label
+                    / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count.value)}.jpg"
+                )
+                total_bbox_count.value += 1
+        else:
+            img_path = (
+                self.raw_all_dataset
+                / atis_yönelim_label
+                / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
+            )
+            total_bbox_count += 1
+
+        cropped_image = cv2_image[ytl:ybr, xtl:xbr, :]
+        cv2.imwrite(str(img_path), cropped_image)
+        return total_bbox_count  # Return value only meaningful if multiproc==False.
 
     def parse(self):
         img_dims_dict = {}
@@ -417,15 +475,15 @@ if __name__ == "__main__":
         )
     )
     ic(parser_ser3.parse())
-    ic(split_dataset(parser_ser3, train_ratio=3 / 4))
+    ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3"))
 
     parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
     ic(parser_dfas.parse())
-    ic(split_dataset(parser_dfas))
+    ic(split_dataset(parser_dfas, scene_name="dfas"))
 
     parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
     ic(parser_cerkez.parse())
-    ic(split_dataset(parser_cerkez))
+    ic(split_dataset(parser_cerkez, scene_name="cerkez"))
 
     dataset_list = [
         "atis_yönelim_clasification_dataset/classification_dataset_cerkez",
