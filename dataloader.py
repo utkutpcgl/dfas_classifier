@@ -10,7 +10,7 @@ DEVICE = f"cuda:{GPU_ID0}"
 IMG_RES_DICT = {"B0": 224, "B3": 300}
 IMG_RES_RESNET = 224
 DATA_DIR = Path(
-    "/home/utku/Documents/repos/dfas_classifier/data_ops/atis_yönelim_clasification_dataset/classification_dataset_combined"
+    "/home/kuartis-dgx1/utku/dfas_classifier/data_ops/classification_dataset_combined"
 )
 
 # TODO discarded "atış", "araçlı_atış", "siper_mevzi" for now
