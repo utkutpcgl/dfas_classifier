@@ -1,3 +1,4 @@
+from imp import lock_held
 import random
 import cv2
 import xml.etree.ElementTree as ET
@@ -7,15 +8,22 @@ import networkx as nx
 import shutil
 import subprocess
 from matplotlib import pyplot as plt
+from sklearn.neighbors import VALID_METRICS
 from sklearn.preprocessing import scale
 from tqdm import tqdm
 from icecream import ic
-from multiprocessing import Pool, Value
+from multiprocessing import Pool, Value, Lock
 import math
 from itertools import repeat
 
 
 PROC_NUM = 8
+total_bbox_count_mp = Value("i", 0)
+occluded_count_mp = Value("i", 0)
+occluded_count = 0  # global variable.
+lock = Lock()
+SKIP_OCCLUDED = True
+
 """
 Create classification dataset for torchvision. Folders should be named after classes in train/val/test folders.
 """
@@ -200,7 +208,7 @@ class DataParserDFAS:
         if out_classification_dataset != None:
             self.classification_dataset = Path(out_classification_dataset)
         else:
-            self.classification_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_dfas")
+            self.classification_dataset = Path("atis_yönelim_classification_dataset/classification_dataset_dfas")
         self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
@@ -233,13 +241,17 @@ class DataParserDFAS:
         image_folders.sort()
         return image_folders
 
-    def process(self, image_props: list):
+    def proc_initializer(self, *args):
+        global lock, total_bbox_count_mp, occluded_count_mp
+        total_bbox_count_mp, occluded_count_mp, lock = args
+
+    def process(self, image_props: list, multi_proc: bool):
         total_bbox_count = 0
         for xmlfile, image_folder in self.label_and_image_paths:
             image_height = image_props[xmlfile]["height"]
             image_width = image_props[xmlfile]["width"]
             image_path = image_props[xmlfile]["path"]
-            scene_name = Path(image_folder).stem.split("-")[0]  # get only the name
+            scene_name = Path(image_folder).stem.split("--")[0]  # get only the name
             ic(xmlfile)
             ic()
             xml_tree = ET.parse(xmlfile)
@@ -247,50 +259,88 @@ class DataParserDFAS:
             all_images = root.findall("image")
 
             enumerated_all_images = list(enumerate(all_images))
-            for frame_index_img_tuple in tqdm(enumerated_all_images):
-                total_bbox_count = self.process_image(
-                    frame_index_img_tuple,
-                    image_height,
-                    image_width,
-                    scene_name,
-                    image_folder,
-                    total_bbox_count,
-                    multi_proc=False,
-                )
-
-    def process_mp(self, image_props: list):
-        multi_proc = True
-        total_bbox_count = Value("i", 0)  # has to be multiproc value in multiprocessing.
-        for xmlfile, image_folder in self.label_and_image_paths:
-            image_height = image_props[xmlfile]["height"]
-            image_width = image_props[xmlfile]["width"]
-            image_path = image_props[xmlfile]["path"]
-            scene_name = Path(image_folder).stem.split("-")[0]  # get only the name
-            ic(xmlfile)
-            ic()
-            xml_tree = ET.parse(xmlfile)
-            root = xml_tree.getroot()
-            all_images = root.findall("image")
-
-            enumerated_all_images = list(enumerate(all_images))
-            number_of_image_packets = math.ceil(len(enumerated_all_images) / PROC_NUM)
-            with Pool(processes=PROC_NUM) as pool:
-                for idx in tqdm(range(number_of_image_packets)):
-                    start_idx = idx * PROC_NUM
-                    enumerated_image_list = enumerated_all_images[start_idx : start_idx + PROC_NUM]
-                    process_args = zip(
-                        enumerated_image_list,
-                        repeat(image_height),
-                        repeat(image_width),
-                        repeat(scene_name),
-                        repeat(image_folder),
-                        total_bbox_count,
-                        repeat(multi_proc),
+            if multi_proc:
+                number_of_image_packets = math.ceil(len(enumerated_all_images) / PROC_NUM)
+                with Pool(
+                    processes=PROC_NUM,
+                    initializer=self.proc_initializer,
+                    initargs=(total_bbox_count_mp, occluded_count_mp, lock),
+                ) as pool:
+                    for idx in tqdm(range(number_of_image_packets)):
+                        start_idx = idx * PROC_NUM
+                        enumerated_image_list = enumerated_all_images[start_idx : start_idx + PROC_NUM]
+                        process_args = zip(
+                            enumerated_image_list,
+                            repeat(image_height),
+                            repeat(image_width),
+                            repeat(scene_name),
+                            repeat(image_folder),
+                            repeat(total_bbox_count),
+                            repeat(True),
+                            repeat(xmlfile),
+                        )
+                        pool.starmap(func=self.process_image, iterable=process_args)
+                    if SKIP_OCCLUDED:
+                        ic(f"Skipped {occluded_count_mp.value} occluded images in {xmlfile}")
+                        occluded_count_mp.value = 0
+            else:
+                for frame_index_img_tuple in tqdm(enumerated_all_images):
+                    total_bbox_count = self.process_image(
+                        frame_index_img_tuple=frame_index_img_tuple,
+                        image_height=image_height,
+                        image_width=image_width,
+                        scene_name=scene_name,
+                        image_folder=image_folder,
+                        total_bbox_count=total_bbox_count,
+                        multi_proc=False,
+                        xmlfile=xmlfile,
                     )
-                    pool.starmap(func=self.process_image, iterable=process_args)
+                if SKIP_OCCLUDED:
+                    global occluded_count
+                    ic(f"Skipped {occluded_count} occluded images in {xmlfile}")
+                    occluded_count = 0
+
+    # def process_mp(self, image_props: list):
+    #     multi_proc = True
+    #     total_bbox_count = Value("i", 0)  # has to be multiproc value in multiprocessing.
+    #     for xmlfile, image_folder in self.label_and_image_paths:
+    #         image_height = image_props[xmlfile]["height"]
+    #         image_width = image_props[xmlfile]["width"]
+    #         image_path = image_props[xmlfile]["path"]
+    #         scene_name = Path(image_folder).stem.split("--")[0]  # get only the name
+    #         ic(xmlfile)
+    #         ic()
+    #         xml_tree = ET.parse(xmlfile)
+    #         root = xml_tree.getroot()
+    #         all_images = root.findall("image")
+
+    #         enumerated_all_images = list(enumerate(all_images))
+    #         number_of_image_packets = math.ceil(len(enumerated_all_images) / PROC_NUM)
+    #         with Pool(
+    #             processes=PROC_NUM, initializer=self.proc_initializer, initargs=(total_bbox_count_mp, lock)
+    #         ) as pool:
+    #             for idx in tqdm(range(number_of_image_packets)):
+    #                 start_idx = idx * PROC_NUM
+    #                 enumerated_image_list = enumerated_all_images[start_idx : start_idx + PROC_NUM]
+    #                 process_args = zip(
+    #                     enumerated_image_list,
+    #                     repeat(image_height),
+    #                     repeat(image_width),
+    #                     repeat(scene_name),
+    #                     repeat(image_folder),
+    #                 )
+    #                 pool.starmap(func=self.process_image_mp, iterable=process_args)
 
     def process_image(
-        self, frame_index_img_tuple, image_height, image_width, scene_name, image_folder, total_bbox_count, multi_proc
+        self,
+        frame_index_img_tuple,
+        image_height,
+        image_width,
+        scene_name,
+        image_folder,
+        total_bbox_count,
+        multi_proc,
+        xmlfile,
     ):
         frame_index, img = frame_index_img_tuple
         # img = next(images)
@@ -306,23 +356,99 @@ class DataParserDFAS:
             scale_pixels = image_width / xml_img_width
         image_path = image_folder / f"{scene_name}--{img_name}"
         cv2_image = cv2.imread(str(image_path))
-        if multi_proc:
-            for box in img.iter("box"):
-                self.crop_box(box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=True)
-        else:
-            for box in img.iter("box"):
-                total_bbox_count = self.crop_box(
-                    box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False
-                )
+        for box in img.iter("box"):
+            self.crop_box(
+                box,
+                scale_pixels,
+                scene_name,
+                frame_index,
+                cv2_image,
+                total_bbox_count,
+                multiproc=multi_proc,
+                xmlfile=xmlfile,
+            )
         return total_bbox_count
 
-    def crop_box(self, box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc=False):
+    # def process_image_mp(self, frame_index_img_tuple, image_height, image_width, scene_name, image_folder, xmlfile):
+    #     frame_index, img = frame_index_img_tuple
+    #     # img = next(images)
+    #     img_name = img.get("name")
+    #     # TODO check if the image width height is the same in the xml annotation file and scale accordingly.
+    #     xml_img_width = int(img.get("width"))
+    #     xml_img_height = int(img.get("height"))
+    #     assert (xml_img_height / xml_img_width) == (
+    #         image_height / image_width
+    #     ), f"{xml_img_height / xml_img_width}!={image_height  / image_width}"
+    #     scale_pixels = 1
+    #     if xml_img_width != image_width:
+    #         scale_pixels = image_width / xml_img_width
+    #     image_path = image_folder / f"{scene_name}--{img_name}"
+    #     cv2_image = cv2.imread(str(image_path))
+    #     for box in img.iter("box"):
+    #         self.crop_box_mp(box, scale_pixels, scene_name, frame_index, cv2_image)
+
+    # def crop_box_mp(self, box, scale_pixels, scene_name, frame_index, cv2_image):
+    #     # label extraction.
+    #     # includes all classes (without doğrultmuş/doğrultmamış ve lastik_palet_izi.)
+    #     label = box.get("label")
+    #     # We only care about tanks currently.
+    #     if label not in dfas_tanks:
+    #         return
+
+    #     box_dict = {}
+    #     for attr in box.iter("attribute"):
+    #         attr_name = attr.get("name")
+    #         answer = attr.text
+    #         box_dict[attr_name] = answer
+    #     atis_yönelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
+    #     atis_yönelim_label = dfas_lut[atis_yönelim]
+
+    #     # Scale if the annotation file does not have the correct image resolution.
+    #     xtl = int(round(float(box.get("xtl"))) * scale_pixels)
+    #     if xtl < 0:
+    #         xtl = 0
+    #     ytl = int(round(float(box.get("ytl"))) * scale_pixels)
+    #     xbr = int(round(float(box.get("xbr"))) * scale_pixels)
+    #     ybr = int(round(float(box.get("ybr"))) * scale_pixels)
+
+    #     # for output vector
+    #     # YOLO label conversion
+    #     # Normalize the pixel coordinates for yolo
+    #     bbox_width = xbr - xtl
+    #     bbox_height = ybr - ytl
+    #     # Skip bbox if too small.
+    #     if self.filter_bbox:
+    #         skip_bbox = check_filter_bboxes(atis_yönelim_label, bbox_width=bbox_width, bbox_height=bbox_height)
+    #         if skip_bbox:
+    #             return
+    #     with lock:
+    #         # lock the total_bbox_count value to avoid race conditions in multiprocessing.
+    #         img_path = (
+    #             self.raw_all_dataset
+    #             / atis_yönelim_label
+    #             / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count_mp.value)}.jpg"
+    #         )
+    #         total_bbox_count_mp.value += 1
+    #     cropped_image = cv2_image[ytl:ybr, xtl:xbr, :]
+    #     cv2.imwrite(str(img_path), cropped_image)
+
+    def crop_box(self, box, scale_pixels, scene_name, frame_index, cv2_image, total_bbox_count, multiproc, xmlfile):
+        if SKIP_OCCLUDED:
+            global occluded_count
+            if "sereflikochisar_3" in str(xmlfile):
+                is_occluded = int(box.get("occluded"))
+                if is_occluded == 1:
+                    if multiproc:
+                        occluded_count_mp.value += 1
+                    else:
+                        occluded_count += 1
+                    return total_bbox_count
         # label extraction.
         # includes all classes (without doğrultmuş/doğrultmamış ve lastik_palet_izi.)
         label = box.get("label")
         # We only care about tanks currently.
         if label not in dfas_tanks:
-            return
+            return total_bbox_count
 
         box_dict = {}
         for attr in box.iter("attribute"):
@@ -353,14 +479,14 @@ class DataParserDFAS:
                 return
 
         if multiproc:
-            with total_bbox_count.get_lock():
+            with lock:
                 # lock the total_bbox_count value to avoid race conditions in multiprocessing.
                 img_path = (
                     self.raw_all_dataset
                     / atis_yönelim_label
-                    / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count.value)}.jpg"
+                    / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count_mp.value)}.jpg"
                 )
-                total_bbox_count.value += 1
+                total_bbox_count_mp.value += 1
         else:
             img_path = (
                 self.raw_all_dataset
@@ -373,7 +499,7 @@ class DataParserDFAS:
         cv2.imwrite(str(img_path), cropped_image)
         return total_bbox_count  # Return value only meaningful if multiproc==False.
 
-    def parse(self):
+    def parse(self, multi_proc=False):
         img_dims_dict = {}
         for xml_file, image_folder_path in self.label_and_image_paths:
             image_folder_list = list(im for im in image_folder_path.iterdir() if im.suffix in [".png", ".jpg", ".jpeg"])
@@ -382,14 +508,14 @@ class DataParserDFAS:
             temp_img = cv2.imread(str(an_image_path_in_folder))
             height, width, channels = temp_img.shape
             img_dims_dict[xml_file] = {"width": width, "height": height, "path": image_folder_path}
-        self.process(img_dims_dict)
+        self.process(img_dims_dict, multi_proc=multi_proc)
 
 
 class DataParserCerkez:
     def __init__(self, dataset_folder=Path, filter_bbox: bool = False, clear_prev_files: bool = False):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
-        self.classification_dataset = Path("atis_yönelim_clasification_dataset/clasification_dataset_cerkez")
+        self.classification_dataset = Path("atis_yönelim_classification_dataset/classification_dataset_cerkez")
         self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
@@ -415,9 +541,9 @@ class DataParserCerkez:
                 retval, frame = cap.read()
                 if not retval:
                     break
-                frame_index += 1
                 print(f"DataParserCerkez progress [%d/{total_images}] \r" % frame_index, end="")
                 img = images_list[frame_index]
+                frame_index += 1
                 for box in img.iter("box"):
                     # label extraction.
                     box_dict = {}
@@ -484,12 +610,12 @@ if __name__ == "__main__":
     parser_ser3 = ic(
         DataParserDFAS(
             dataset_folder=dataset_folder_serefli3,
-            out_classification_dataset="atis_yönelim_clasification_dataset/classification_dataset_ser3",
+            out_classification_dataset="atis_yönelim_classification_dataset/classification_dataset_ser3",
             filter_bbox=False,
             clear_prev_files=True,
         )
     )
-    ic(parser_ser3.parse())
+    ic(parser_ser3.parse(multi_proc=True))
     ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3"))
 
     parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
@@ -501,12 +627,12 @@ if __name__ == "__main__":
     ic(split_dataset(parser_cerkez, scene_name="cerkez"))
 
     dataset_list = [
-        "atis_yönelim_clasification_dataset/classification_dataset_cerkez",
-        "atis_yönelim_clasification_dataset/classification_dataset_dfas",
-        "atis_yönelim_clasification_dataset/classification_dataset_ser3",
+        "atis_yönelim_classification_dataset/classification_dataset_cerkez",
+        "atis_yönelim_classification_dataset/classification_dataset_dfas",
+        "atis_yönelim_classification_dataset/classification_dataset_ser3",
     ]
     ic(
         combine_datasets(
-            dataset_list, target_dataset=Path("atis_yönelim_clasification_dataset/classification_dataset_combined")
+            dataset_list, target_dataset=Path("atis_yönelim_classification_dataset/classification_dataset_combined")
         )
     )
