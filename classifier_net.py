@@ -11,7 +11,7 @@ model = hyps["MODEL"]
 NUMBER_OF_CLASSES = len(C_DICT)
 
 # resnet18
-if model == "resnet":
+if model == "resnet18":
     ResNet = torchvision.models.resnet18(pretrained=True)
     # Freeze first 2 layers
     if hyps["FREEZE"]:

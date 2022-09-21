@@ -237,7 +237,7 @@ def main(weight_path: str, log_path: Path, test_bool: bool, test_weight_path: st
     try:
         if test_bool:
             net.load_state_dict(torch.load(test_weight_path))
-            test(model=net, test_path=TRAIN_PATH, log_path=log_path)
+            test(model=net, test_path=TEST_PATH, log_path=log_path)
         elif test_batch_bool:
             net.load_state_dict(torch.load(test_weight_path))
             test_batch(
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_atis_yönelim_classifier_resnet_6/atis_yönelim_classifier_resnet.pt",
+        default=f"exp_atis_yönelim_classifier_resnet18_1/atis_yönelim_classifier_resnet18_new_dataset.pt",
         help="weights path",
     )
     opt = parser.parse_args()
