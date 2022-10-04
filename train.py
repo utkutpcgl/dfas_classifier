@@ -222,7 +222,7 @@ def test(model, test_path, log_path):
     print(f"One epoch for test complete in {epoch_time_elapsed // 60:.0f}m {epoch_time_elapsed % 60:.0f}s")
 
 
-def main(weight_path: str, log_path: Path, test_bool: bool, test_weight_path: str, test_batch_bool: False):
+def main(weight_path: str, log_path: Path, test_bool: bool, test_weight_path: str, test_batch_bool: bool):
     """The training loop all pieces combined. https://towardsdatascience.com/why-adamw-matters-736223f31b5d
     Researchers often prefer stochastic gradient descent (SGD) with momentum because models trained with Adam have been observed to not generalize as well."""
     epochs = hyps["epochs"]
@@ -285,7 +285,8 @@ def create_exp_folder(exp_name, hyps_path=Path("hyperparameters.yaml")) -> Path:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    weight_name = f"atis_yonelim_classifier_{hyps['MODEL']}"
+    task = hyps["TASK"]
+    weight_name = f"{task}_yonelim_classifier_{hyps['MODEL']}"
     parser.add_argument("--weight_path", type=str, default=f"{weight_name}.pt", help="weights path")
     # NOTE store_false is default true while store_true is default false.
     parser.add_argument("--test", action="store_true", help="Test on testset.")
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_atis_yonelim_classifier_resnet18_2/atis_yonelim_classifier_resnet18.pt",
+        default=f"exp_{task}_yonelim_classifier_resnet18_2/{task}_yonelim_classifier_resnet18.pt",
         help="weights path",
     )
     opt = parser.parse_args()
