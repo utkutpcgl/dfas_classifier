@@ -205,7 +205,7 @@ class DataParserDFAS:
         if out_classification_dataset != None:
             self.classification_dataset = Path(out_classification_dataset)
         else:
-            self.classification_dataset = Path("arac_yönelim_classification_dataset/classification_dataset_dfas")
+            self.classification_dataset = Path("arac_yönelim_classification_dataset/arac_yönelim_classification_dataset_dfas")
         self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
@@ -481,32 +481,32 @@ if __name__ == "__main__":
     dataset_folder_dfas = Path("/home/utku/Documents/raw_datasets/dataset_new_dfas")
     dataset_folder_serefli3 = Path("/home/utku/Documents/raw_datasets/dataset_new_serefli3")
 
-    # parser_ser3 = ic(
-    #     DataParserDFAS(
-    #         dataset_folder=dataset_folder_serefli3,
-    #         out_classification_dataset="arac_yönelim_classification_dataset/classification_dataset_ser3",
-    #         filter_bbox=False,
-    #         clear_prev_files=True,
-    #     )
-    # )
-    # ic(parser_ser3.parse(multi_proc=True))
-    # ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3_arac"))
+    parser_ser3 = ic(
+        DataParserDFAS(
+            dataset_folder=dataset_folder_serefli3,
+            out_classification_dataset="arac_yönelim_classification_dataset/classification_dataset_ser3",
+            filter_bbox=False,
+            clear_prev_files=True,
+        )
+    )
+    ic(parser_ser3.parse(multi_proc=True))
+    ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3_arac"))
 
     parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
-    ic(parser_dfas.parse(multi_proc=False))
+    ic(parser_dfas.parse(multi_proc=True))
     ic(split_dataset(parser_dfas, scene_name="dfas_arac"))
 
-    # parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
-    # ic(parser_cerkez.parse())
-    # ic(split_dataset(parser_cerkez, scene_name="cerkez_arac"))
+    parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
+    ic(parser_cerkez.parse())
+    ic(split_dataset(parser_cerkez, scene_name="cerkez_arac"))
 
-    # dataset_list = [
-    #     "arac_yönelim_classification_dataset/classification_dataset_cerkez",
-    #     "arac_yönelim_classification_dataset/classification_dataset_dfas",
-    #     "arac_yönelim_classification_dataset/classification_dataset_ser3",
-    # ]
-    # ic(
-    #     combine_datasets(
-    #         dataset_list, target_dataset=Path("arac_yönelim_classification_dataset/classification_dataset_combined")
-    #     )
-    # )
+    dataset_list = [
+        "arac_yönelim_classification_dataset/classification_dataset_cerkez",
+        "arac_yönelim_classification_dataset/classification_dataset_dfas",
+        "arac_yönelim_classification_dataset/classification_dataset_ser3",
+    ]
+    ic(
+        combine_datasets(
+            dataset_list, target_dataset=Path("arac_yönelim_classification_dataset/classification_dataset_combined")
+        )
+    )
