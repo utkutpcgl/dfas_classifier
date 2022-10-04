@@ -4,7 +4,7 @@ from PIL import Image
 
 WIDTH_LIMIT = 35
 HEIGHT_LIMIT = 25
-DEF_PATH = Path("/home/utku/Documents/repos/dfas_classifier/create_dataset/atis_yönelim_clasification_dataset")
+DEF_PATH = Path("/home/utku/Documents/repos/dfas_classifier/create_dataset/atis_yonelim_clasification_dataset")
 
 
 def filter_folder_recursively(data_folder_path: Path, deleted_images: list):
