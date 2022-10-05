@@ -52,6 +52,27 @@ def copy_images_mixed(all_dataset: Path, mixed_all_dataset: Path):
             shutil.copyfile(image, target_path)
 
 
+# Rename files to have a proper sorted order for seperating val and train sets task specific.
+def pad_zeros(num_str, max_elements):
+    pad_this_many = max_elements - len(num_str)
+    new_num_str = pad_this_many * "0" + num_str
+    return new_num_str
+
+
+def get_new_file(image_name):
+    split_image_name_list = image_name.split("_")
+    # index -2 and -3 should be padded 0s (max 6 elements)
+    split_image_name_list[-2] = pad_zeros(split_image_name_list[-2], 6)
+    split_image_name_list[-3] = pad_zeros(split_image_name_list[-3], 6)
+    new_image_name = "_".join(split_image_name_list)
+    return new_image_name
+
+
+def rename_files_to_sort(mixed_all_dataset):
+    for image_file in mixed_all_dataset.iterdir():
+        image_file.rename(image_file.parent / get_new_file(image_file.name))
+
+
 # Based on the tasks find the train indexes vs val test indexes.
 def extract_task_and_class_name(image_name):
     split_image_name_list = image_name.split("_")
@@ -139,6 +160,7 @@ def split_dataset(
 def main():
     create_dir()
     copy_images_mixed(all_dataset=ALL_DATASET, mixed_all_dataset=MIXED_ALL_DATASET)
+    rename_files_to_sort(mixed_all_dataset=MIXED_ALL_DATASET)
     split_dataset(target_classification_dataset=TARGET_CLASSIFICATION_DATASET, mixed_all_dataset=MIXED_ALL_DATASET)
 
 
