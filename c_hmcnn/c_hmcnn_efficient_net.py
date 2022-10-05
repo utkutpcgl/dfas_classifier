@@ -9,7 +9,7 @@ from dataloader import DEVICE, GPU_IDS, C_DICT, DFAS_TREE
 
 NUMBER_OF_CLASSES = len(C_DICT)
 single_eff_net = torchvision.models.regnet_x_16gf(pretrained=True)
-hier_classification_head = torch.nn.Linear(in_features = single_eff_net.fc.in_features, out_features =  NUMBER_OF_CLASSES)
+hier_classification_head = torch.nn.Linear(in_features=single_eff_net.fc.in_features, out_features=NUMBER_OF_CLASSES)
 single_eff_net.fc = hier_classification_head
 
 # single_eff_net = torchvision.models.efficientnet_b0(pretrained=True)# torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_efficientnet_b0', pretrained=True)
@@ -17,11 +17,12 @@ single_eff_net.fc = hier_classification_head
 # hier_classification_head = torch.nn.Linear(in_features = single_eff_net.classifier[1].in_features, out_features =  NUMBER_OF_CLASSES)
 # single_eff_net.classifier[1] = hier_classification_head
 
-# NOTE you can add atış yönelimi with the head below.
+# NOTE you can add atış yonelimi with the head below.
 # direction_of_fire_classification_head = torch.nn.Linear(in_features = eff_net.fc.in_features, out_features = NUMBER_OF_CLASSES)
 
+
 def get_constr_out(output_logits, R_constraint_matrix):
-    """ Given the output of the neural network output_logits returns the output of MCM given the hierarchy constraint expressed in the matrix R 
+    """Given the output of the neural network output_logits returns the output of MCM given the hierarchy constraint expressed in the matrix R
     Returns maximum value (not index) (should return max of descendents -> that is the constraint)"""
     # TODO In evaulation only the max conf path should stay alive. Kill other sigmoid outputs.
     # (not possible combinations) should be eliminated.
@@ -31,21 +32,23 @@ def get_constr_out(output_logits, R_constraint_matrix):
     c_out = c_out.expand(len(output_logits), R_constraint_matrix.shape[1], R_constraint_matrix.shape[1])
     R_batch = R_constraint_matrix.expand(len(output_logits), R_constraint_matrix.shape[1], R_constraint_matrix.shape[1])
     constr_r = c_out.clone()
-    constr_r[R_batch == 0] = -float('inf') # This is like R_batch*c_out
-    final_out, _ = torch.max(constr_r, dim = 2)
+    constr_r[R_batch == 0] = -float("inf")  # This is like R_batch*c_out
+    final_out, _ = torch.max(constr_r, dim=2)
     return final_out
+
 
 class ConstrainedEffNet(torch.nn.Module):
     def __init__(self, R_constraint_matrix, eff_net):
-        super(ConstrainedEffNet,self).__init__()
+        super(ConstrainedEffNet, self).__init__()
         self.constrained_effnet = copy.deepcopy(eff_net)
         self.R_constraint_matrix = R_constraint_matrix
-    
+
     def forward(self, x):
         x = self.constrained_effnet(x)
         # NOTE training is a built-in variable of torch.Module.
-        constrained_out = x # Regular multi-label training.
+        constrained_out = x  # Regular multi-label training.
         return constrained_out
+
 
 # Constraint matrix
 R_constraint_matrix = torch.zeros([NUMBER_OF_CLASSES, NUMBER_OF_CLASSES])
@@ -53,18 +56,18 @@ R_constraint_matrix = torch.zeros([NUMBER_OF_CLASSES, NUMBER_OF_CLASSES])
 # the ancestor (super class). This constraint matrix shows the hierarchy.
 R_constraint_matrix.fill_diagonal_(1)
 for class_name in C_DICT.keys():
-    descendants  = list(nx.descendants(DFAS_TREE, class_name))
+    descendants = list(nx.descendants(DFAS_TREE, class_name))
     ancestor_idx = C_DICT[class_name]
     for child_class_name in descendants:
         child_idx = C_DICT[child_class_name]
         # Normally columns are descendents and rows are ancestors.
         R_constraint_matrix[ancestor_idx, child_idx] = 1
-#Transpose to get the ancestors for each node 
+# Transpose to get the ancestors for each node
 R_constraint_matrix = R_constraint_matrix.transpose(1, 0)
 R_constraint_matrix = R_constraint_matrix.unsqueeze(dim=0).to(DEVICE)
 
 # Constraint model
-single_constraint_eff_net = ConstrainedEffNet(R_constraint_matrix=R_constraint_matrix, eff_net = single_eff_net)
+single_constraint_eff_net = ConstrainedEffNet(R_constraint_matrix=R_constraint_matrix, eff_net=single_eff_net)
 constraint_eff_net = single_constraint_eff_net
 # Multi GPU train
 # constraint_eff_net = torch.nn.DataParallel(single_constraint_eff_net, device_ids = GPU_IDS)
@@ -72,7 +75,6 @@ constraint_eff_net = single_constraint_eff_net
 
 def main():
     pass
-
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ dfas_tree.add_edge("Tank", "Tank-fırtına")
 dfas_tanks = ["Tank-leopard", "Tank-M60", "Tank-M48", "Tank-fırtına", "Tank"]
 dfas_lut = {"belirsiz": "dogrultmamis", "doğrultmuş": "dogrultmus", "doğrultmamış": "dogrultmamis"}
 
-# Cerkezköy needs the graph below
+# Cerkezkoy needs the graph below
 cerkez_tree = nx.DiGraph()
 cerkez_tree.add_node("insan")
 cerkez_tree.add_node("arac")
@@ -208,7 +208,8 @@ class DataParserDFAS:
         if out_classification_dataset != None:
             self.classification_dataset = Path(out_classification_dataset)
         else:
-            self.classification_dataset = Path("atis_yönelim_classification_dataset/classification_dataset_dfas")
+            self.classification_dataset = Path("atis_yonelim_clasification_dataset/clasification_dataset_dfas")
+
         self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
@@ -455,8 +456,8 @@ class DataParserDFAS:
             attr_name = attr.get("name")
             answer = attr.text
             box_dict[attr_name] = answer
-        atis_yönelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
-        atis_yönelim_label = dfas_lut[atis_yönelim]
+        atis_yonelim = box_dict["silah_durumu"]  # silah_durumu is the attribute name.
+        atis_yonelim_label = dfas_lut[atis_yonelim]
 
         # Scale if the annotation file does not have the correct image resolution.
         xtl = int(round(float(box.get("xtl"))) * scale_pixels)
@@ -474,7 +475,7 @@ class DataParserDFAS:
 
         # Skip bbox if too small.
         if self.filter_bbox:
-            skip_bbox = check_filter_bboxes(atis_yönelim_label, bbox_width=bbox_width, bbox_height=bbox_height)
+            skip_bbox = check_filter_bboxes(atis_yonelim_label, bbox_width=bbox_width, bbox_height=bbox_height)
             if skip_bbox:
                 return
 
@@ -483,14 +484,14 @@ class DataParserDFAS:
                 # lock the total_bbox_count value to avoid race conditions in multiprocessing.
                 img_path = (
                     self.raw_all_dataset
-                    / atis_yönelim_label
-                    / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count_mp.value)}.jpg"
+                    / atis_yonelim_label
+                    / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count.value)}.jpg"
                 )
                 total_bbox_count_mp.value += 1
         else:
             img_path = (
                 self.raw_all_dataset
-                / atis_yönelim_label
+                / atis_yonelim_label
                 / f"dfas_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
             )
             total_bbox_count += 1
@@ -515,7 +516,7 @@ class DataParserCerkez:
     def __init__(self, dataset_folder=Path, filter_bbox: bool = False, clear_prev_files: bool = False):
         self.filter_bbox = filter_bbox
         self.dataset_folder = dataset_folder
-        self.classification_dataset = Path("atis_yönelim_classification_dataset/classification_dataset_cerkez")
+        self.classification_dataset = Path("atis_yonelim_clasification_dataset/clasification_dataset_cerkez")
         self.raw_all_dataset = self.classification_dataset / "all"
         if clear_prev_files:
             # Remove previous dataset directory:
@@ -556,8 +557,8 @@ class DataParserCerkez:
                     most_specific_label = box_dict["ek nitelik"]
                     if most_specific_label not in cerkez_tanks:
                         continue
-                    atis_yönelim = box_dict["silah durum"]
-                    atis_yönelim_label = cerkez_lut[atis_yönelim]
+                    atis_yonelim = box_dict["silah durum"]
+                    atis_yonelim_label = cerkez_lut[atis_yonelim]
                     # top left and bottom right label_list are available.
                     xtl = int(round(float(box.get("xtl"))))
                     if xtl < 0:
@@ -571,13 +572,13 @@ class DataParserCerkez:
                     bbox_height = ybr - ytl
                     if self.filter_bbox:
                         skip_bbox = check_filter_bboxes(
-                            atis_yönelim_label, bbox_width=bbox_width, bbox_height=bbox_height
+                            atis_yonelim_label, bbox_width=bbox_width, bbox_height=bbox_height
                         )
                         if skip_bbox:
                             continue
                     img_path = (
                         self.raw_all_dataset
-                        / atis_yönelim_label
+                        / atis_yonelim_label
                         / f"cerkez_{scene_name}_{frame_index}_{str(total_bbox_count)}.jpg"
                     )
                     cropped_image = frame[ytl:ybr, xtl:xbr, :]
@@ -610,7 +611,7 @@ if __name__ == "__main__":
     parser_ser3 = ic(
         DataParserDFAS(
             dataset_folder=dataset_folder_serefli3,
-            out_classification_dataset="atis_yönelim_classification_dataset/classification_dataset_ser3",
+            out_classification_dataset="atis_yonelim_clasification_dataset/classification_dataset_ser3",
             filter_bbox=False,
             clear_prev_files=True,
         )
@@ -627,12 +628,12 @@ if __name__ == "__main__":
     ic(split_dataset(parser_cerkez, scene_name="cerkez"))
 
     dataset_list = [
-        "atis_yönelim_classification_dataset/classification_dataset_cerkez",
-        "atis_yönelim_classification_dataset/classification_dataset_dfas",
-        "atis_yönelim_classification_dataset/classification_dataset_ser3",
+        "atis_yonelim_clasification_dataset/classification_dataset_cerkez",
+        "atis_yonelim_clasification_dataset/classification_dataset_dfas",
+        "atis_yonelim_clasification_dataset/classification_dataset_ser3",
     ]
     ic(
         combine_datasets(
-            dataset_list, target_dataset=Path("atis_yönelim_classification_dataset/classification_dataset_combined")
+            dataset_list, target_dataset=Path("atis_yonelim_clasification_dataset/classification_dataset_combined")
         )
     )

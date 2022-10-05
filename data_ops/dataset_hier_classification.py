@@ -45,7 +45,7 @@ dfas_tree.add_edge("Tank", "Tank-M60")
 dfas_tree.add_edge("Tank", "Tank-M48")
 dfas_tree.add_edge("Tank", "Tank-fırtına")
 
-# Cerkezköy needs the graph below
+# Cerkezkoy needs the graph below
 cerkez_tree = nx.DiGraph()
 cerkez_tree.add_node("insan")
 cerkez_tree.add_node("arac")

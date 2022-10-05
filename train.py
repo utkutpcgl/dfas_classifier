@@ -285,7 +285,7 @@ def create_exp_folder(exp_name, hyps_path=Path("hyperparameters.yaml")) -> Path:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    weight_name = f"atis_yönelim_classifier_{hyps['MODEL']}"
+    weight_name = f"atis_yonelim_classifier_{hyps['MODEL']}"
     parser.add_argument("--weight_path", type=str, default=f"{weight_name}.pt", help="weights path")
     # NOTE store_false is default true while store_true is default false.
     parser.add_argument("--test", action="store_true", help="Test on testset.")
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_atis_yönelim_classifier_resnet18_1/atis_yönelim_classifier_resnet18_new_dataset.pt",
+        default=f"exp_atis_yonelim_classifier_resnet18_2/atis_yonelim_classifier_resnet18.pt",
         help="weights path",
     )
     opt = parser.parse_args()
