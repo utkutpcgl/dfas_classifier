@@ -3,8 +3,10 @@ from argparse import ArgumentParser
 from PIL import Image
 
 WIDTH_LIMIT = 35
-HEIGHT_LIMIT = 25
-DEF_PATH = Path("/home/utku/Documents/repos/dfas_classifier/create_dataset/atis_yönelim_clasification_dataset")
+HEIGHT_LIMIT = 23
+DEF_PATH = Path(
+    "/home/utku/Documents/repos/dfas_classifier/data_ops/arac_yönelim_classification_dataset/classification_dataset_combined/train/5"
+)
 
 
 def filter_folder_recursively(data_folder_path: Path, deleted_images: list):
