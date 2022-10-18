@@ -5,10 +5,14 @@ from tqdm import tqdm
 from itertools import repeat
 from multiprocessing import Pool
 import cv2
+from subprocess import run
+import random
 
-PROC_NUM = 40  # DGX has 80 CPUS !
-SOURCE_YOLO_DATASET = Path()
-TARGET_CROP_DATASET = Path()
+PROC_NUM = 16  # DGX has 80 CPUS !
+SOURCE_YOLO_DATASET = Path(
+    "/home/utku/Documents/repos/multi_label_hier_v5/data_ops/yolo_dataset_hier/yolo_dataset_all_patched_val_cleaned"
+)
+TARGET_CROP_DATASET = Path("/home/utku/Documents/repos/dfas_classifier/data_ops/tank_classification_dataset")
 dfas_classes = (
     ["araç", "insan", "askeri araç", "sivil araç", "askeri insan"]
     + ["sivil insan", "lastikli", "paletli", "silahlı asker", "silahsız asker"]
@@ -19,7 +23,14 @@ TANK_CLASS_NAMES = ["Tank-M48", "Tank-M60", "Tank-leopard"]
 DATA_SPLITS = ["train", "val", "test"]
 
 
-def create_dir():
+def clear_prev_dir():
+    cmd = f"rm -r {TARGET_CROP_DATASET}"
+    run(cmd, shell=True, check=True)
+
+
+def create_dir(clear_prev=True):
+    if clear_prev:
+        clear_prev_dir()
     for tank_class_name in TANK_CLASS_NAMES:
         for data_split in DATA_SPLITS:
             (TARGET_CROP_DATASET / data_split / tank_class_name).mkdir(exist_ok=True, parents=True)
@@ -53,11 +64,14 @@ def get_coordinates(center_x_yolo, center_y_yolo, width_yolo, height_yolo, im_wi
     min_y = (center_y_yolo - height_yolo / 2) * im_height
     max_x = (center_x_yolo + width_yolo / 2) * im_width
     max_y = (center_y_yolo + height_yolo / 2) * im_height
-    return min_x, min_y, max_x, max_y
+    return int(min_x), int(min_y), int(max_x), int(max_y)
 
 
 def crop_single_img(img_path: Path, class_names: list, data_split: str):
     txt_path = SOURCE_YOLO_DATASET / "labels" / data_split / img_path.with_suffix(".txt").name
+    if data_split == "val":
+        criterion = random.randint(0, 1)
+        data_split = "val" if criterion == 1 else "test"
     with open(txt_path, "r") as reader:
         str_line = reader.readline()
         count = 0
@@ -71,17 +85,18 @@ def crop_single_img(img_path: Path, class_names: list, data_split: str):
                     center_x_yolo, center_y_yolo, width_yolo, height_yolo = [
                         float(str_element) for str_element in str_elements[1:]
                     ]
-                    cv2_img = cv2.imread(img_path)
+                    cv2_img = cv2.imread(str(img_path))
                     im_height, im_width, _ = cv2_img.shape
                     min_x, min_y, max_x, max_y = get_coordinates(
                         center_x_yolo, center_y_yolo, width_yolo, height_yolo, im_width, im_height
                     )
-                    cv2_img_crop = cv2_img[min_y:max_y, min_x:max_x]  # rows, cols.
-                    target_crop_path = (
-                        TARGET_CROP_DATASET / data_split / class_name / f"{img_path.stem}_{count}{img_path.suffix}"
-                    )
-                    cv2.imwrite(str(target_crop_path), cv2_img_crop)
-                    count += 1
+                    if max_x > min_x and max_y > min_y:
+                        cv2_img_crop = cv2_img[min_y:max_y, min_x:max_x]  # rows, cols.
+                        target_crop_path = (
+                            TARGET_CROP_DATASET / data_split / class_name / f"{img_path.stem}_{count}{img_path.suffix}"
+                        )
+                        cv2.imwrite(str(target_crop_path), cv2_img_crop)
+                        count += 1
             str_line = reader.readline()
 
 
@@ -126,8 +141,6 @@ def print_args(args):
 def main():
     create_dir()
     args = parse_args()
-    target_label_path_val = Path(args.target_label_path_val)
-    target_label_path_train = Path(args.target_label_path_train)
     print_args(args)
     if not args.mp_bool:
         print("Create cropped classification dataset WITHOUT multiproc.")
