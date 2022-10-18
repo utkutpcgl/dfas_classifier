@@ -9,9 +9,6 @@ GPU_ID0 = GPU_IDS[0]
 DEVICE = f"cuda:{GPU_ID0}"
 IMG_RES_DICT = {"B0": 224, "B3": 300}
 IMG_RES_RESNET = 224
-DATA_DIR = Path(
-    "/home/kuartis-dgx1/utku/dfas_classifier/data_ops/classification_dataset_combined"
-)
 
 # TODO discarded "atış", "araçlı_atış", "siper_mevzi" for now
 # C_DICT = {'araç': 0, 'insan': 1, 'askeri araç': 2, 'sivil araç': 3, 'askeri insan': 4, 'sivil insan': 5,
@@ -21,6 +18,8 @@ DATA_DIR = Path(
 with open("hyperparameters.yaml", "r") as reader:
     hyps = yaml.safe_load(reader)
 
+TASK = hyps["TASK"]  # either arac or atis.
+DATA_DIR = Path(f"/home/kuartis-dgx1/utku/dfas_classifier/data_ops/{TASK}_classification_dataset_combined")
 if "effnet" in hyps["MODEL"]:
     IMG_RES = IMG_RES_DICT[hyps["model_type"]]
 elif "resnet" in hyps["MODEL"]:

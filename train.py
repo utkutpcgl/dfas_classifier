@@ -269,8 +269,10 @@ def calculate_next_exp_num(exp_name: str) -> int:
     for i in Path(".").iterdir():
         content_name = i.name
         if exp_name in content_name:
-            old_exp_num = int(content_name.split("_")[-1])
-            max_exp_num = max(max_exp_num, old_exp_num)
+            file_suffix = content_name.split("_")[-1]
+            if file_suffix.isdigit():
+                old_exp_num = int(content_name.split("_")[-1])
+                max_exp_num = max(max_exp_num, old_exp_num)
     exp_num = max_exp_num + 1
     return exp_num
 
@@ -294,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_{task}_yonelim_classifier_resnet18_2/{task}_yonelim_classifier_resnet18.pt",
+        default=f"exp_{task}_yonelim_classifier_resnet18_1/{task}_yonelim_classifier_resnet18.pt",
         help="weights path",
     )
     opt = parser.parse_args()
