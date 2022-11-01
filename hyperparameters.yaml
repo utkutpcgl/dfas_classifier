@@ -1,13 +1,14 @@
-TASK: "arac_yonelim" # arac or atis yonelim
-GPUS: [0,1,2,3]
+TASK: "TS" # arac or atis yonelim or tank or TS (traffic sign)
+GPUS: [0]
 FREEZE: false
 FROZEN_LAYERS: [1]
 MODEL: "resnet18" # resnet or effnet
 model_type: "B0"
+OTHER: true
 
 # Optimizer & LR scheme
 # 128 batch size did not fit.
-batch_size: 4096 #1024  # per GPU
+batch_size: 320 #1024  # per GPU
 workers: 4
 
 epochs: 50
