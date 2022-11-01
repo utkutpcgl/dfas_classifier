@@ -5,6 +5,7 @@ import torch
 import time
 import os
 import copy
+import math
 from tqdm import tqdm
 import argparse
 from pathlib import Path
@@ -12,21 +13,25 @@ from shutil import copyfile
 import matplotlib.pyplot as plt
 from sklearn.metrics import average_precision_score, precision_score, recall_score, f1_score, accuracy_score
 from dataloader import (
+    C_DICT,
     dataloaders,
     dataset_sizes,
     hyps,
-    test_dataloader,
-    testset_size,
     GPU_ID0,
     GPU_IDS,
     DEVICE,
-    TEST_PATH,
     TRAIN_PATH,
     IMG_RES,
     RESIZE,
     TO_TENSOR,
     NORMALIZE,
+    num_samples_per_class,
+    TEST_AVAILABLE,
 )
+
+if TEST_AVAILABLE:
+    from dataloader import test_dataloader, TEST_PATH, testset_size
+
 from classifier_net import net
 
 # For testing on a path
@@ -109,7 +114,7 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
             # concat over batch dim
             total_labels_tensor = numpy.concatenate(total_labels, axis=0)
             total_preds_tensor = numpy.concatenate(total_preds, axis=0)
-
+            # 'macro': Calculate metrics for each label, and find their unweighted mean
             prec = precision_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
             rec = recall_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
             f1 = f1_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
@@ -162,13 +167,17 @@ def test_batch(model, test_dataloader, log_path, criterion, testset_size):
     # concat over batch dim
     total_labels_tensor = numpy.concatenate(total_labels, axis=0)
     total_preds_tensor = numpy.concatenate(total_preds, axis=0)
-
+    if len(C_DICT) == 3:
+        prec_2 = precision_score(total_labels_tensor, total_preds_tensor, pos_label=2, average="macro")
+        rec_2 = recall_score(total_labels_tensor, total_preds_tensor, pos_label=2, average="macro")
+        f1_2 = f1_score(total_labels_tensor, total_preds_tensor, pos_label=2, average="macro")
     prec_1 = precision_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
     rec_1 = recall_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
     f1_1 = f1_score(total_labels_tensor, total_preds_tensor, pos_label=1, average="macro")
     prec_0 = precision_score(total_labels_tensor, total_preds_tensor, pos_label=0, average="macro")
     rec_0 = recall_score(total_labels_tensor, total_preds_tensor, pos_label=0, average="macro")
     f1_0 = f1_score(total_labels_tensor, total_preds_tensor, pos_label=0, average="macro")
+
     accuracy = accuracy_score(total_labels_tensor, total_preds_tensor)
 
     # Since last batch might contain less elements averaging over batch_num is incorrect.
@@ -180,6 +189,13 @@ def test_batch(model, test_dataloader, log_path, criterion, testset_size):
         f"   for pos_label=0 -> precision: {prec_0}, recall: {rec_0}, f1: {f1_0}\n"
         f"   for pos_label=1 -> precision: {prec_1}, recall: {rec_1}, f1: {f1_1}"
     )
+    if len(C_DICT) == 3:
+        epoch_report = (
+            f"TEST -> loss: {loss}, accuracy: {accuracy}\n"
+            f"   for pos_label=0 -> precision: {prec_0}, recall: {rec_0}, f1: {f1_0}\n"
+            f"   for pos_label=1 -> precision: {prec_1}, recall: {rec_1}, f1: {f1_1}"
+            f"   for pos_label=2 -> precision: {prec_2}, recall: {rec_2}, f1: {f1_2}"
+        )
     print(epoch_report)
     write_log(epoch_report, path=log_path)
 
@@ -222,14 +238,29 @@ def test(model, test_path, log_path):
     print(f"One epoch for test complete in {epoch_time_elapsed // 60:.0f}m {epoch_time_elapsed % 60:.0f}s")
 
 
-def main(weight_path: str, log_path: Path, test_bool: bool, test_weight_path: str, test_batch_bool: bool):
+def main(
+    weight_path: str,
+    log_path: Path,
+    test_bool: bool,
+    test_weight_path: str,
+    test_batch_bool: bool,
+    weighted_class_loss_bool: bool,
+):
     """The training loop all pieces combined. https://towardsdatascience.com/why-adamw-matters-736223f31b5d
     Researchers often prefer stochastic gradient descent (SGD) with momentum because models trained with Adam have been observed to not generalize as well."""
     epochs = hyps["epochs"]
     optimizer = torch.optim.AdamW(net.parameters(), lr=hyps["lr"])
-    criterion = torch.nn.CrossEntropyLoss(
-        weight=torch.tensor([1, 10]).float().to(DEVICE)
-    )  # Give more importance to doğrultmuş.
+    if weighted_class_loss_bool:
+        class_weights = calc_class_weights(
+            len(C_DICT), num_samples_per_class=num_samples_per_class, imbalance_power=1 / 2
+        )
+        print(f"class weights are : {class_weights}")
+        # Mainly for atis yonelim.
+        criterion = torch.nn.CrossEntropyLoss(
+            weight=torch.tensor(class_weights).float().to(DEVICE)
+        )  # Give more importance to doğrultmuş.
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
     # TODO cosineannealinglr scheduler can be used for better performance.
     exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=hyps["lr_step_size"], gamma=hyps["lr_gamma"]
@@ -277,6 +308,21 @@ def calculate_next_exp_num(exp_name: str) -> int:
     return exp_num
 
 
+def calc_class_weights(num_of_classes, num_samples_per_class, imbalance_power=1 / 2):
+    """Calculate class weights based on how far they are to ideal sample count."""
+    total_num_samples = sum(num_samples_per_class)
+    ideal_sample_count = total_num_samples / num_of_classes
+    class_weights = list()
+    for num_sample_per_class in num_samples_per_class:
+        ideal_ratio = ideal_sample_count / num_sample_per_class
+        class_weight = math.pow(ideal_ratio, imbalance_power)
+        class_weights.append(class_weight)
+    class_weights_sum = sum(class_weights)
+    normalizer_scalar = num_of_classes / class_weights_sum
+    scaled_class_weights = list(normalizer_scalar * class_weight for class_weight in class_weights)
+    return scaled_class_weights
+
+
 def create_exp_folder(exp_name, hyps_path=Path("hyperparameters.yaml")) -> Path:
     exp_num = calculate_next_exp_num(exp_name)
     exp_folder = Path(f"{exp_name}_{exp_num}")
@@ -288,7 +334,7 @@ def create_exp_folder(exp_name, hyps_path=Path("hyperparameters.yaml")) -> Path:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     task = hyps["TASK"]
-    weight_name = f"{task}_yonelim_classifier_{hyps['MODEL']}"
+    weight_name = f"{task}_classifier_{hyps['MODEL']}"
     parser.add_argument("--weight_path", type=str, default=f"{weight_name}.pt", help="weights path")
     # NOTE store_false is default true while store_true is default false.
     parser.add_argument("--test", action="store_true", help="Test on testset.")
@@ -296,12 +342,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_{task}_yonelim_classifier_resnet18_1/{task}_yonelim_classifier_resnet18.pt",
+        default=f"exp_{task}_classifier_resnet18_1/{task}_classifier_resnet18.pt",
         help="weights path",
     )
+    parser.add_argument("--weighted_class_loss", action="store_true", help="Apply weighted loss for class imbalance.")
     opt = parser.parse_args()
     test_bool = opt.test
     test_batch_bool = opt.test_batch
+    weighted_class_loss_bool = opt.weighted_class_loss
     # Default option is train
     if not (test_bool or test_batch_bool):
         test_weight_path = None
@@ -314,4 +362,4 @@ if __name__ == "__main__":
         test_type = "test_batch" * test_batch_bool or "test"
         log_path = Path(test_weight_path).with_name(f"{test_type}.log")
     # Add test to log path if if test_bool.
-    main(weight_path, log_path, test_bool, test_weight_path, test_batch_bool)
+    main(weight_path, log_path, test_bool, test_weight_path, test_batch_bool, weighted_class_loss_bool)
