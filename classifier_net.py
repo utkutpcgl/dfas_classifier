@@ -3,18 +3,18 @@ import torchvision
 from matplotlib import pyplot as plt
 import copy
 from PIL import Image
-from dataloader import DEVICE, GPU_IDS, C_DICT, hyps
+from dataloader import DEVICE, GPU_IDS, C_DICT, HYPS
 
 # TODO maybe freeze some layers.
 
-model = hyps["MODEL"]
+model = HYPS["MODEL"]
 NUMBER_OF_CLASSES = len(C_DICT)
 
 # resnet18
 if model == "resnet18":
     ResNet = torchvision.models.resnet18(pretrained=True)
     # Freeze first 2 layers
-    if hyps["FREEZE"]:
+    if HYPS["FREEZE"]:
         for idx, (name, param) in enumerate(ResNet.named_parameters()):
             if idx <= 2 or "layer1" in name or "layer2" in name:
                 param.requires_grad = False
@@ -37,7 +37,7 @@ if model == "resnet18":
 # effnet b0
 elif model == "effnet":
     effnet_single = torch.hub.load("NVIDIA/DeepLearningExamples:torchhub", "nvidia_efficientnet_b0", pretrained=True)
-    if hyps["FREEZE"]:
+    if HYPS["FREEZE"]:
         pass
     hier_classification_head = torch.nn.Linear(
         in_features=effnet_single.classifier.fc.in_features, out_features=NUMBER_OF_CLASSES
@@ -48,6 +48,8 @@ elif model == "effnet":
     net = effnet_single
 
 single_net = net.to(DEVICE)
+net = single_net
+print(GPU_IDS)
 net = torch.nn.DataParallel(single_net, device_ids=GPU_IDS)
 # NOTE you can add atış yonelimi with the head below.
 # direction_of_fire_classification_head = torch.nn.Linear(in_features = net.fc.in_features, out_features = NUMBER_OF_CLASSES)
