@@ -1,0 +1,1 @@
+This model utilizes all data collected together with the aselsan datasets (on which the model confused the numbers on the wall with speed limits.). This model might still be improved with active learning. 

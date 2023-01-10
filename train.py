@@ -1,5 +1,3 @@
-from filecmp import DEFAULT_IGNORES
-from genericpath import exists
 import shutil
 import numpy
 import torch
@@ -22,7 +20,6 @@ from sklearn.metrics import (
 )
 import seaborn as sn
 from pandas import DataFrame as df
-
 from dataloader import (
     C_DICT,
     DATALOADERS,
@@ -32,6 +29,7 @@ from dataloader import (
     GPU_IDS,
     DEVICE,
     TRAIN_PATH,
+    VAL_PATH,
     IMG_RES,
     RESIZE,
     TO_TENSOR,
@@ -40,6 +38,7 @@ from dataloader import (
     TEST_AVAILABLE,
     DETECT_PATH,
     CLASS_NAMES,
+    IGNORE_OTHER,
 )
 
 if TEST_AVAILABLE:
@@ -53,8 +52,7 @@ from torchvision.transforms import ToTensor
 from torchvision import transforms
 
 # device = torch.device("cuda:0" if torch)
-torch.backends.cudnn.benchmark = True
-# TODO check if automatic mixed precision reduces accuracy.
+
 
 
 def write_log(info_str, path=Path("weights/log.txt")):
@@ -69,10 +67,12 @@ def save_model(model_state_dict, info_str, save_path="weights/eff_weights.pt", l
     torch.save(model_state_dict, save_path)
     write_log(info_str, path=log_path)
 
-def save_conf_matrix(total_preds_tensor, total_labels_tensor, log_path:Path, suffix:str = "_f1_conf_matrix"):
+
+def save_conf_matrix(total_preds_tensor, total_labels_tensor, log_path: Path, suffix: str = "_f1_conf_matrix"):
+    """Rows are true label, columns are predicted labels. See here: https://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html"""
     conf_matrix_f1 = confusion_matrix(y_pred=total_preds_tensor, y_true=total_labels_tensor)
-    conf_mat_labels_f1_df = df(conf_matrix_f1, index = CLASS_NAMES, columns=CLASS_NAMES)
-    plt.figure(figsize=(30,30))
+    conf_mat_labels_f1_df = df(conf_matrix_f1, index=CLASS_NAMES, columns=CLASS_NAMES)
+    plt.figure(figsize=(30, 30))
     sn.set(font_scale=1)
     sn.heatmap(conf_mat_labels_f1_df, annot=True)
     f1_conf_matrix_path = log_path.with_name(log_path.stem + suffix + ".png")
@@ -160,7 +160,7 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
             if phase == "val":
                 if epoch_acc > best_acc:
                     # Plot conf matrix.
-                    save_conf_matrix(total_labels_tensor,total_labels_tensor, log_p, "_acc_conf_matrix")
+                    save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_acc_conf_matrix")
 
                     best_acc = epoch_acc
                     best_weights_acc = copy.deepcopy(model.state_dict())
@@ -173,7 +173,7 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
                     )
                 if epoch_f1 > best_f1:
                     # Plot conf matrix.
-                    save_conf_matrix(total_labels_tensor,total_labels_tensor, log_p, "_f1_conf_matrix")
+                    save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_f1_conf_matrix")
 
                     best_f1 = epoch_f1
                     best_weights_f1 = copy.deepcopy(model.state_dict())
@@ -227,7 +227,7 @@ def test_batch(model, test_dataloader, log_path, criterion, testset_size):
     accuracy = accuracy_score(total_labels_tensor, total_preds_tensor)
     # Plot conf matrix.
     log_p = Path(log_path)
-    save_conf_matrix(total_labels_tensor,total_labels_tensor, log_p, "_conf_matrix")
+    save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_conf_matrix")
 
     # Since last batch might contain less elements averaging over batch_num is incorrect.
     loss = running_loss / testset_size
@@ -239,6 +239,7 @@ def test_batch(model, test_dataloader, log_path, criterion, testset_size):
     )
     print(epoch_report)
     write_log(epoch_report, path=log_path)
+
 
 def val_batch(model, val_dataloader, log_path, criterion, valset_size):
     model = model.to(DEVICE)
@@ -275,7 +276,7 @@ def val_batch(model, val_dataloader, log_path, criterion, valset_size):
     # Plot conf matrix.
     # Plot conf matrix.
     log_p = Path(log_path)
-    save_conf_matrix(total_labels_tensor,total_labels_tensor, log_p, "_conf_matrix")
+    save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_conf_matrix")
 
     # Since last batch might contain less elements averaging over batch_num is incorrect.
     loss = running_loss / valset_size
@@ -320,7 +321,9 @@ def test(model, test_path, log_path):
                     output = model(torch_img.unsqueeze(dim=0))
             pred = torch.argmax(output, dim=1)  # First dim is batch dimension
             is_accurate: bool = int(pred.item()) == cls_idx
-            epoch_report += f"{img_path} is predicted {is_accurate*'correctly' or 'falsely'}\n"
+            epoch_report += (
+                f"{img_path} is predicted {is_accurate*'correctly' or 'falsely'} as {class_names[int(pred.item())]}\n"
+            )
         # Write results to different log paths.
     write_log(epoch_report, path=log_path)
     epoch_time_elapsed = time.time() - start_timer_epoch
@@ -360,6 +363,7 @@ def main(
     weight_path: str,
     log_path: Path,
     test_bool: bool,
+    val_bool: bool,
     test_weight_path: str,
     detect_bool: bool,
     test_batch_bool: bool,
@@ -369,6 +373,8 @@ def main(
 ):
     """The training loop all pieces combined. https://towardsdatascience.com/why-adamw-matters-736223f31b5d
     Researchers often prefer stochastic gradient descent (SGD) with momentum because models trained with Adam have been observed to not generalize as well."""
+    torch.backends.cudnn.benchmark = True
+    torch.cuda.set_per_process_memory_fraction(HYPS["CUDA_FRACTION"], device=DEVICE)
     epochs = HYPS["epochs"]
     optimizer = torch.optim.AdamW(net.parameters(), lr=HYPS["lr"])
     if weighted_class_loss_bool:
@@ -393,6 +399,9 @@ def main(
         if test_bool:
             net.load_state_dict(torch.load(test_weight_path))
             test(model=net, test_path=TEST_PATH, log_path=log_path)
+        elif val_bool:
+            net.load_state_dict(torch.load(test_weight_path))
+            test(model=net, test_path=VAL_PATH, log_path=log_path)
         elif detect_bool:
             net.load_state_dict(torch.load(test_weight_path))
             detect(model=net, log_path=log_path)
@@ -477,44 +486,48 @@ if __name__ == "__main__":
     parser.add_argument("--weight_path", type=str, default=f"{weight_name}.pt", help="weights path")
     # NOTE store_false is default true while store_true is default false.
     parser.add_argument("--test", action="store_true", help="Test on testset.")
+    parser.add_argument("--val", action="store_true", help="Val on valset.")
     parser.add_argument("--detect", action="store_true", help="Move predicted images to target class folders..")
     parser.add_argument("--test_batch", action="store_true", help="Test on testset with batches to see metrics.")
     parser.add_argument("--val_batch", action="store_true", help="Test on validation set with batches to see metrics.")
     parser.add_argument(
         "--test_weight_path",
         type=str,
-        default=f"exp_{task}_classifier_resnet18_1/{task}_classifier_resnet18_f1_221120.pt",
+        default=f"exp_{task}_classifier_resnet18_more_active_no_filter/{task}_classifier_resnet18_f1.pt",
         help="weights path",
     )
     parser.add_argument("--weighted_class_loss", action="store_true", help="Apply weighted loss for class imbalance.")
-    parser.add_argument(
-        "--ignore_other",
-        action="store_true",
-        help="Do not reduce other classes contribution to loss when weighted class loss is selected.",
-    )
     opt = parser.parse_args()
     test_bool = opt.test
+    val_bool = opt.val
     detect_bool = opt.detect
     test_batch_bool = opt.test_batch
     val_batch_bool = opt.val_batch
     weighted_class_loss_bool = opt.weighted_class_loss
-    ignore_other_bool = opt.ignore_other
+    ignore_other_bool = IGNORE_OTHER
     # Default option is train
-    if not (test_bool or test_batch_bool or detect_bool or val_batch_bool):
+    if not (test_bool or test_batch_bool or detect_bool or val_batch_bool or val_bool):
         test_weight_path = None
-        exp_folder = create_exp_folder(exp_name=f"exp_{weight_name}")
+        exp_folder = create_exp_folder(exp_name=f"trained_models/exp_{weight_name}")
         weight_path = exp_folder / (opt.weight_path)
         log_path = exp_folder / (weight_path.stem + "_log.txt")
     else:
         test_weight_path = opt.test_weight_path
         weight_path = None
-        test_type = "test_batch" * test_batch_bool or "val_batch" * val_batch_bool or "test" * test_bool or "detect" * detect_bool
+        test_type = (
+            "test_batch" * test_batch_bool
+            or "val_batch" * val_batch_bool
+            or "test" * test_bool
+            or "detect" * detect_bool
+            or "val" * val_bool
+        )
         log_path = Path(test_weight_path).with_name(f"{test_type}.log")
     # Add test to log path if if test_bool.
     main(
         weight_path,
         log_path,
         test_bool,
+        val_bool,
         test_weight_path,
         detect_bool,
         test_batch_bool,

@@ -18,6 +18,7 @@ from itertools import repeat
 
 
 PROC_NUM = 8
+ONLY_SPLIT=True
 total_bbox_count_mp = Value("i", 0)
 occluded_count_mp = Value("i", 0)
 occluded_count = 0  # global variable.
@@ -108,8 +109,7 @@ def clear_previous_files(data_parser):
         cmd = f"rm -r {data_parser.classification_dataset}"
         subprocess.run(cmd, shell=True, check=True)
 
-
-def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_name: str = "dfas"):
+def split_dataset_generic(raw_all_dataset, classification_dataset, train_ratio=4 / 5, old_data_split=False, scene_name: str = "dfas"):
     """Hardcoded dataset split."""
 
     def plot_bar_graph_per_split(classes_per_split: dict, plot_name: str):
@@ -124,7 +124,7 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_na
         plt.clf()
 
     # 0.75, 0.125, 0.125 -> train,val,test split
-    cmd = f"find {data_parser.raw_all_dataset} -type f | wc -l"
+    cmd = f"find {raw_all_dataset} -type f | wc -l"
     num_of_files_stdout = subprocess.run(cmd, check=True, shell=True, stdout=subprocess.PIPE)
     number_of_images = int(str(num_of_files_stdout.stdout).replace("\\n", "").replace("b", "").replace("'", ""))
     ic("Number of images for classification in dfas dataset folder: ", number_of_images)
@@ -133,7 +133,7 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_na
     number_per_classes_per_split = {
         data_split: {class_name: 0 for class_name in class_names} for data_split in ["train", "val", "test"]
     }
-    for class_folder in data_parser.raw_all_dataset.iterdir():
+    for class_folder in raw_all_dataset.iterdir():
         ic(class_folder)
         enumerated_class_folder_list = list(enumerate(list(class_folder.iterdir())))
         class_folder_len = len(enumerated_class_folder_list)
@@ -164,12 +164,16 @@ def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_na
                             data_split = "test"
                 number_per_classes_per_split[data_split][class_folder.name] += 1
                 target_image_path = (
-                    (data_parser.classification_dataset / data_split) / class_folder.name / image_in_class.name
+                    (classification_dataset / data_split) / class_folder.name / image_in_class.name
                 )
                 shutil.copyfile(image_in_class, target_image_path)
     ic(number_per_classes_per_split)
     for split_name, classes_per_split in number_per_classes_per_split.items():
         plot_bar_graph_per_split(classes_per_split, plot_name=f"{scene_name}_{split_name}")
+
+def split_dataset(data_parser, train_ratio=4 / 5, old_data_split=False, scene_name: str = "dfas"):
+    """Hardcoded dataset split."""
+    split_dataset_generic(data_parser.raw_all_dataset, data_parser.classification_dataset, train_ratio=train_ratio, old_data_split=False, scene_name= "dfas")
 
 
 # Skip the label if the width and height are not appropriate
@@ -604,36 +608,47 @@ class DataParserCerkez:
 
 
 if __name__ == "__main__":
-    dataset_folder_cerkez = Path("/home/utku/Documents/raw_datasets/dataset_new_cerkez")
-    dataset_folder_dfas = Path("/home/utku/Documents/raw_datasets/dataset_new_dfas")
-    dataset_folder_serefli3 = Path("/home/utku/Documents/raw_datasets/dataset_new_serefli3")
+    if ONLY_SPLIT:
+        classification_dataset_path = Path("/home/utku/Documents/repos/dfas_classifier/data_ops/atis_yonelim_classification_dataset_combined_fixed")
+        (classification_dataset_path/"train/dogrultmus").mkdir(exist_ok=True,parents=True)
+        (classification_dataset_path/"train/dogrultmamis").mkdir(exist_ok=True,parents=True)
+        (classification_dataset_path/"val/dogrultmus").mkdir(exist_ok=True,parents=True)
+        (classification_dataset_path/"val/dogrultmamis").mkdir(exist_ok=True,parents=True)
+        (classification_dataset_path/"test/dogrultmus").mkdir(exist_ok=True,parents=True)
+        (classification_dataset_path/"test/dogrultmamis").mkdir(exist_ok=True,parents=True)
+        raw_all_dataset_path = classification_dataset_path / "all"
+        split_dataset_generic(raw_all_dataset=raw_all_dataset_path, classification_dataset=classification_dataset_path)
+    else:
+        dataset_folder_cerkez = Path("/home/utku/Documents/raw_datasets/dataset_new_cerkez")
+        dataset_folder_dfas = Path("/home/utku/Documents/raw_datasets/dataset_new_dfas")
+        dataset_folder_serefli3 = Path("/home/utku/Documents/raw_datasets/dataset_new_serefli3")
 
-    parser_ser3 = ic(
-        DataParserDFAS(
-            dataset_folder=dataset_folder_serefli3,
-            out_classification_dataset="atis_yonelim_clasification_dataset/classification_dataset_ser3",
-            filter_bbox=False,
-            clear_prev_files=True,
+        parser_ser3 = ic(
+            DataParserDFAS(
+                dataset_folder=dataset_folder_serefli3,
+                out_classification_dataset="atis_yonelim_clasification_dataset/classification_dataset_ser3",
+                filter_bbox=False,
+                clear_prev_files=True,
+            )
         )
-    )
-    ic(parser_ser3.parse(multi_proc=True))
-    ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3"))
+        ic(parser_ser3.parse(multi_proc=True))
+        ic(split_dataset(parser_ser3, train_ratio=3 / 4, scene_name="ser3"))
 
-    parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
-    ic(parser_dfas.parse())
-    ic(split_dataset(parser_dfas, scene_name="dfas"))
+        parser_dfas = ic(DataParserDFAS(dataset_folder=dataset_folder_dfas, filter_bbox=False))
+        ic(parser_dfas.parse())
+        ic(split_dataset(parser_dfas, scene_name="dfas"))
 
-    parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
-    ic(parser_cerkez.parse())
-    ic(split_dataset(parser_cerkez, scene_name="cerkez"))
+        parser_cerkez = ic(DataParserCerkez(dataset_folder=dataset_folder_cerkez, filter_bbox=False))
+        ic(parser_cerkez.parse())
+        ic(split_dataset(parser_cerkez, scene_name="cerkez"))
 
-    dataset_list = [
-        "atis_yonelim_clasification_dataset/classification_dataset_cerkez",
-        "atis_yonelim_clasification_dataset/classification_dataset_dfas",
-        "atis_yonelim_clasification_dataset/classification_dataset_ser3",
-    ]
-    ic(
-        combine_datasets(
-            dataset_list, target_dataset=Path("atis_yonelim_clasification_dataset/classification_dataset_combined")
+        dataset_list = [
+            "atis_yonelim_clasification_dataset/classification_dataset_cerkez",
+            "atis_yonelim_clasification_dataset/classification_dataset_dfas",
+            "atis_yonelim_clasification_dataset/classification_dataset_ser3",
+        ]
+        ic(
+            combine_datasets(
+                dataset_list, target_dataset=Path("atis_yonelim_clasification_dataset/classification_dataset_combined")
+            )
         )
-    )
