@@ -8,3 +8,6 @@
 **/*.wts
 **/*.zip
 **/*dataset_combined
+**/*log
+**/*txt
+**/*trained_models
