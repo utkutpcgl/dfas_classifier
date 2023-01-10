@@ -7,3 +7,4 @@
 **/*.pt
 **/*.wts
 **/*.zip
+**/*dataset_combined
