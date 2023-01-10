@@ -12,7 +12,7 @@ NUMBER_OF_CLASSES = len(C_DICT)
 
 # resnet18
 if model == "resnet18":
-    ResNet = torchvision.models.resnet18(pretrained=True)
+    ResNet = torchvision.models.resnet18(pretrained=HYPS["PRETRAINED"])
     # Freeze first 2 layers
     if HYPS["FREEZE"]:
         for idx, (name, param) in enumerate(ResNet.named_parameters()):
