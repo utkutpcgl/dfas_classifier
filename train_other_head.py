@@ -36,6 +36,11 @@ GET_ENERGY = False
 POSSIBLE_SIG_THRESH_TENSOR = torch.tensor([i / 20 for i in range(20)]).to(DEVICE)
 
 
+def print_and_log(message, log_path: str):
+    with open(log_path, "a") as message_appender:
+        message_appender.write(message + "\n")
+
+
 def get_trained_model(weight_path):
     net.load_state_dict(torch.load(weight_path))
     return net
@@ -80,22 +85,22 @@ def train_one_epoch(model, dataloader_train_in, dataloader_train_out, scheduler,
         ood_out_target = torch.zeros(size=(len(out_set[1]), 1)).to(DEVICE).squeeze()
         data, target = data.to(DEVICE), target.to(DEVICE)
         # forward
-        x = model(data)
+        output = model(data)
         # backward
         optimizer.zero_grad()
-        # loss = torch.nn.functional.cross_entropy(x[: len(in_set[0])], target)
-        loss_classification = torch.nn.functional.cross_entropy(x[: len(in_set[0]), : (NUMBER_OF_CLASSES - 1)], target)
-        assert x[: len(in_set[0]), (NUMBER_OF_CLASSES - 1)].shape == ood_in_target.shape
-        loss_ood_in = torch.nn.functional.binary_cross_entropy_with_logits(x[: len(in_set[0]), (NUMBER_OF_CLASSES - 1)], ood_in_target)
+        # loss = torch.nn.functional.cross_entropy(output[: len(in_set[0])], target)
+        loss_classification = torch.nn.functional.cross_entropy(output[: len(in_set[0]), : (NUMBER_OF_CLASSES - 1)], target)
+        assert output[: len(in_set[0]), (NUMBER_OF_CLASSES - 1)].shape == ood_in_target.shape
+        loss_ood_in = torch.nn.functional.binary_cross_entropy_with_logits(output[: len(in_set[0]), (NUMBER_OF_CLASSES - 1)], ood_in_target)
         # NOTE torch.nn.functional.binary_cross_entropy does not input logits but sigmoid outputs.
-        assert x[len(in_set[0]) :, (NUMBER_OF_CLASSES - 1)].shape == ood_out_target.shape
-        loss_ood_out = torch.nn.functional.binary_cross_entropy_with_logits(x[len(in_set[0]) :, (NUMBER_OF_CLASSES - 1)], ood_out_target)
+        assert output[len(in_set[0]) :, (NUMBER_OF_CLASSES - 1)].shape == ood_out_target.shape
+        loss_ood_out = torch.nn.functional.binary_cross_entropy_with_logits(output[len(in_set[0]) :, (NUMBER_OF_CLASSES - 1)], ood_out_target)
         # Normalize based on sample counts (to increase weights of the one with more samples.)
         loss_ood_normalized = (loss_ood_in * len(ood_in_target) + loss_ood_out * len(ood_out_target)) / (len(ood_in_target) + len(ood_out_target))
 
         # number_of_tasks = 2
         task_normalized_weights = torch.nn.functional.softmax(torch.randn(2), dim=-1).to(DEVICE)
-        loss = task_normalized_weights[0] * loss_classification + task_normalized_weights[1] * loss_ood_normalized
+        loss = loss_classification  # task_normalized_weights[0] * loss_classification + task_normalized_weights[1] * loss_ood_normalized
         loss.backward()
         optimizer.step()
         scheduler.step()  # update the steps of cosine annealing every step (over batches.)
@@ -106,6 +111,7 @@ def train_one_epoch(model, dataloader_train_in, dataloader_train_out, scheduler,
 
 def get_perf_metrics(total_labels_array, total_preds_array):
     # 'macro': Calculate metrics for each label, and find their unweighted mean
+    assert total_labels_array.shape == total_preds_array.shape
     epoch_prec = precision_score(total_labels_array, total_preds_array, pos_label=1, average="macro")
     epoch_rec = recall_score(total_labels_array, total_preds_array, pos_label=1, average="macro")
     epoch_f1 = f1_score(total_labels_array, total_preds_array, pos_label=1, average="macro")
@@ -113,14 +119,15 @@ def get_perf_metrics(total_labels_array, total_preds_array):
     return epoch_prec, epoch_rec, epoch_f1, epoch_acc
 
 
-def validate_one_epoch(model, data_loader_val_in, dataloader_val_out, state_report):
+def validate_one_epoch(model, dataloader_val_in, dataloader_val_out, state_report):
     model.eval()
     total_loss = 0.0
     total_labels_OOD, total_preds_OOD = [], []
     total_labels_classification, total_preds_classification = [], []
     number_of_thresholds = len(POSSIBLE_SIG_THRESH_TENSOR)
     with torch.no_grad():
-        for input_batch, labels_batch in data_loader_val_in:
+        # In distribution iteration for classificaiton and in-dist training
+        for input_batch, labels_batch in dataloader_val_in:
             input_batch, labels_batch = input_batch.to(DEVICE), labels_batch.to(DEVICE)
             ood_in_labels_batch = torch.ones(size=(len(input_batch), 1)).to(DEVICE).squeeze()
             # forward
@@ -129,27 +136,45 @@ def validate_one_epoch(model, data_loader_val_in, dataloader_val_out, state_repo
             loss_ood_in = torch.nn.functional.binary_cross_entropy_with_logits(output_batch[:, -1], ood_in_labels_batch)  # Default is mean reduction.
             # classification accuracy
             preds_batch_classification = torch.argmax(output_batch[:, : (NUMBER_OF_CLASSES - 1)], dim=1)
+            # To numpy and CPU.
             total_preds_classification.append(preds_batch_classification.int().cpu().numpy())
             total_labels_classification.append(labels_batch.int().cpu().numpy())
 
-            # OOD accuracy
-            broadcasted_ood_in_labels_batch = torch.broadcast_to(
-                ood_in_labels_batch.unsqueeze(dim=1), (len(output_batch), number_of_thresholds)
-            )
+            # OOD
+            broadcasted_ood_in_labels_batch = torch.broadcast_to(ood_in_labels_batch.unsqueeze(dim=1), (len(output_batch), number_of_thresholds))
             broadcasted_output_batch = torch.broadcast_to(
                 output_batch[:, (NUMBER_OF_CLASSES - 1)].unsqueeze(dim=1),
                 (len(output_batch), number_of_thresholds),
             )
-            broadcasted_sig_thresholds = torch.broadcast_to(
-                POSSIBLE_SIG_THRESH_TENSOR.unsqueeze(dim=0), (len(output_batch), number_of_thresholds)
-            )
+            broadcasted_sig_thresholds = torch.broadcast_to(POSSIBLE_SIG_THRESH_TENSOR.unsqueeze(dim=0), (len(output_batch), number_of_thresholds))
             broadcasted_predictions_OD = (broadcasted_output_batch > broadcasted_sig_thresholds) * 1
-            total_labels_OOD.append(broadcasted_ood_in_labels_batch)
-            total_preds_OOD.append(broadcasted_predictions_OD)
-            # TODO add f1 , precision and recall per task. Pick the weights with best average f1.
+            total_labels_OOD.append(broadcasted_ood_in_labels_batch.int().cpu().numpy())
+            total_preds_OOD.append(broadcasted_predictions_OD.int().cpu().numpy())
             # test loss average
             total_loss += float(loss_classification.data) + float(loss_ood_in.data)
+        # Out distribution training
+        for input_batch, labels_batch in dataloader_val_out:
+            input_batch, labels_batch = input_batch.to(DEVICE), labels_batch.to(DEVICE)
+            ood_out_labels_batch = torch.zeros(size=(len(input_batch), 1)).to(DEVICE).squeeze()
+            # forward
+            output_batch = model(input_batch)
+            loss_ood_out = torch.nn.functional.binary_cross_entropy_with_logits(
+                output_batch[:, -1], ood_out_labels_batch
+            )  # Default is mean reduction.
 
+            # OOD
+            broadcasted_ood_out_labels_batch = torch.broadcast_to(ood_out_labels_batch.unsqueeze(dim=1), (len(output_batch), number_of_thresholds))
+            broadcasted_output_batch = torch.broadcast_to(
+                output_batch[:, (NUMBER_OF_CLASSES - 1)].unsqueeze(dim=1),
+                (len(output_batch), number_of_thresholds),
+            )
+            broadcasted_sig_thresholds = torch.broadcast_to(POSSIBLE_SIG_THRESH_TENSOR.unsqueeze(dim=0), (len(output_batch), number_of_thresholds))
+            broadcasted_predictions_OD = (broadcasted_output_batch > broadcasted_sig_thresholds) * 1
+            total_labels_OOD.append(broadcasted_ood_out_labels_batch.int().cpu().numpy())
+            total_preds_OOD.append(broadcasted_predictions_OD.int().cpu().numpy())
+            # TODO add f1 , precision and recall per task. Pick the weights with best average f1.
+            # test loss average
+            total_loss += float(loss_ood_out.data)
     # concat over batch dim
     total_labels_array_classification = numpy.concatenate(total_labels_classification, axis=0)
     total_preds_array_classification = numpy.concatenate(total_preds_classification, axis=0)
@@ -161,21 +186,27 @@ def validate_one_epoch(model, data_loader_val_in, dataloader_val_out, state_repo
     total_labels_OOD_array = numpy.concatenate(total_labels_OOD, axis=0).T
     total_preds_OOD_array = numpy.concatenate(total_preds_OOD, axis=0).T
     total_prec_OOD, total_rec_OOD, total_f1_OOD, total_acc_OOD = 0, 0, 0, 0
-    # calculate the metrics for different threshold values  (then average them.)
+    # add metrics for different threshold values  (then average them.)
     for total_label_OOD_for_thresh, total_preds_OOD_for_thresh in zip(total_labels_OOD_array, total_preds_OOD_array):
-        print(total_label_OOD_for_thresh.shape)
-        print(total_preds_OOD_for_thresh.shape)
-        total_prec_OOD, total_rec_OOD, total_f1_OOD, total_acc_OOD += get_perf_metrics(total_label_OOD_for_thresh, total_preds_OOD_for_thresh)
-    avg_prec_OOD, avg_rec_OOD, avg_f1_OOD, avg_acc_OOD = (total/number_of_thresholds for total in (total_prec_OOD, total_rec_OOD, total_f1_OOD, total_acc_OOD))
-    state_report["in_avg_val_loss"] = total_loss / len(data_loader_val_in)
-    state_report["in_val_accuracy_classification"] = 100 * epoch_acc_classification / len(data_loader_val_in.dataset)
-    state_report["in_val_f1_classification"] = 100 * epoch_f1_classification / len(data_loader_val_in.dataset)
-    state_report["in_val_prec_classification"] = 100 * epoch_prec_classification / len(data_loader_val_in.dataset)
-    state_report["in_val_rec_classification"] = 100 * epoch_rec_classification / len(data_loader_val_in.dataset)
-    state_report["out_avg_val_precision"] = avg_prec_OOD
-    state_report["out_avg_val_recall"] = avg_rec_OOD
-    state_report["out_avg_val_f1"] = avg_f1_OOD
-    state_report["out_avg_val_accuracy"] = avg_acc_OOD
+        thresh_prec_OOD, thresh_rec_OOD, thresh_f1_OOD, thresh_acc_OOD = get_perf_metrics(total_label_OOD_for_thresh, total_preds_OOD_for_thresh)
+        total_prec_OOD += thresh_prec_OOD
+        total_rec_OOD += thresh_rec_OOD
+        total_f1_OOD += thresh_f1_OOD
+        total_acc_OOD += thresh_acc_OOD
+    avg_prec_OOD, avg_rec_OOD, avg_f1_OOD, avg_acc_OOD = (
+        total / number_of_thresholds for total in (total_prec_OOD, total_rec_OOD, total_f1_OOD, total_acc_OOD)
+    )
+    # avg_prec_OOD, avg_rec_OOD, avg_f1_OOD, avg_acc_OOD = 0, 0, 0, 0
+    state_report["in_avg_val_loss"] = total_loss / len(dataloader_val_in)
+    state_report["in_val_accuracy_classification"] = 100 * epoch_acc_classification
+    state_report["in_val_f1_classification"] = 100 * epoch_f1_classification
+    state_report["in_val_prec_classification"] = 100 * epoch_prec_classification
+    state_report["in_val_rec_classification"] = 100 * epoch_rec_classification
+    state_report["out_avg_val_precision"] = 100 * avg_prec_OOD
+    state_report["out_avg_val_recall"] = 100 * avg_rec_OOD
+    state_report["out_avg_val_f1"] = 100 * avg_f1_OOD
+    state_report["out_avg_val_accuracy"] = 100 * avg_acc_OOD
+    state_report["final_avg_f1"] = 100 * (avg_f1_OOD + epoch_f1_classification) / 2
 
 
 def train_oh(
@@ -183,6 +214,7 @@ def train_oh(
     dataloader_train_in,
     dataloader_train_out,
     dataloader_val_in,
+    dataloader_val_out,
     optimizer,
     scheduler,
     epochs,
@@ -192,12 +224,14 @@ def train_oh(
     """Fine tune an already trained model to detect out-of-dist samples (other class)."""
     print("Start other head training")
     state_report = {}
+    best_report_str = ""
+    final_avg_f1 = 0
     for epoch in range(epochs):
         state_report["epoch"] = epoch
         begin_epoch = time.time()
         if epoch == 0:
             print("TEST VALIDATION CODE")
-            validate_one_epoch(model=model, val_loader=dataloader_val_in, state_report=state_report)
+            validate_one_epoch(model=model, dataloader_val_in=dataloader_val_in, dataloader_val_out=dataloader_val_out, state_report=state_report)
         train_one_epoch(
             model,
             dataloader_train_in=dataloader_train_in,
@@ -206,22 +240,28 @@ def train_oh(
             optimizer=optimizer,
             state_report=state_report,
         )
-        validate_one_epoch(model=model, val_loader=dataloader_val_in, state_report=state_report)
-        # Save model
-        torch.save(model.state_dict(), weight_path.with_name(weight_path.stem + "_other_head.pt"))
-        state_report_str = "Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | In Avg. Val Loss {3:.3f} | In Val Accuracy Classification {4:.2f} | Out Avg Val Prec:{5} Rec:{6} F1:{7} Acc:{8}".format(
+        validate_one_epoch(model=model, dataloader_val_in=dataloader_val_in, dataloader_val_out=dataloader_val_out, state_report=state_report)
+        state_report_str = "Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | In Avg. Val Loss {3:.3f} | In Val Accuracy Classification {4:.2f} | Out Avg Val Prec:{5:.2f} Rec:{6:.2f} F1:{7:.2f} Acc:{8:.2f} | Final avg f1:{9:.2f}".format(
             (epoch + 1),
             int(time.time() - begin_epoch),
             state_report["avg_train_loss"],
             state_report["in_avg_val_loss"],
-            100.0 * state_report["in_val_accuracy_classification"],
+            state_report["in_val_accuracy_classification"],
             state_report["out_avg_val_precision"],
             state_report["out_avg_val_recall"],
             state_report["out_avg_val_f1"],
             state_report["out_avg_val_accuracy"],
+            state_report["final_avg_f1"],
         )
-        write_log(info_str=state_report_str, path=log_path)
-        print(state_report)
+        if final_avg_f1 < state_report["final_avg_f1"]:
+            # Save model
+            best_report_str = state_report_str
+            final_avg_f1 = state_report["final_avg_f1"]
+            torch.save(model.state_dict(), weight_path.with_name(weight_path.stem + "_other_head.pt"))
+        print_and_log(message=state_report_str + "\n", log_path=log_path)
+        if epoch == epochs - 1:
+            print_and_log(message="\nBest epoch report : \n", log_path=log_path)
+            print_and_log(message=best_report_str + "\n\n\n", log_path=log_path)
 
 
 def train_other_head(model, out_dataloaders, in_dataloaders):
@@ -237,6 +277,7 @@ def train_other_head(model, out_dataloaders, in_dataloaders):
         dataloader_train_in=in_dataloaders["train"],
         dataloader_train_out=out_dataloaders["train"],
         dataloader_val_in=in_dataloaders["val"],
+        dataloader_val_out=out_dataloaders["val"],
         optimizer=optimizer,
         scheduler=scheduler,
         epochs=HYPS["other_head_epochs"],
