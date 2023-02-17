@@ -28,8 +28,11 @@ import numpy as np
 TRAINED_WEIGHT_PATH = Path(
     "/home/utku/Documents/repos/dfas_classifier/trained_models/exp_light_dataset_v1_classifier_resnet18_1/light_dataset_v1_classifier_resnet18_f1.pt"
 )
+ENERGY_TRAINED_WEIGHT_PATH = Path(
+    "/home/utku/Documents/repos/dfas_classifier/trained_models/exp_light_dataset_v1_classifier_resnet18_1/light_dataset_v1_classifier_resnet18_f1_energy.pt"
+)
 # device = torch.device("cuda:0" if torch)
-SEED=1
+SEED = 1
 GET_ENERGY = False
 
 
@@ -102,18 +105,27 @@ def train_energy_one_epoch(
         # forward
         x = model(data)
         # backward
-        scheduler.step()  # update the steps of cosine annealing every step (over batches.)
         optimizer.zero_grad()
-        loss = torch.nn.functional.cross_entropy(x[: len(in_set[0])], target)
+        # loss = torch.nn.functional.cross_entropy(x[: len(in_set[0])], target)
+        loss_classification = torch.nn.functional.cross_entropy(x[: len(in_set[0])], target)
+
         # cross-entropy from softmax distribution to uniform distributio
         Ec_out = -torch.logsumexp(x[len(in_set[0]) :], dim=1)
         Ec_in = -torch.logsumexp(x[: len(in_set[0])], dim=1)
-        loss += lambda_energy * (
+        loss_ood = (
             torch.pow(torch.nn.functional.relu(Ec_in - m_in), 2).mean()
             + torch.pow(torch.nn.functional.relu(m_out - Ec_out), 2).mean()
         )
+        # loss += lambda_energy * (
+        #     torch.pow(torch.nn.functional.relu(Ec_in - m_in), 2).mean()
+        #     + torch.pow(torch.nn.functional.relu(m_out - Ec_out), 2).mean()
+        # )
+        # number_of_tasks = 2
+        task_normalized_weights = torch.nn.functional.softmax(torch.randn(2), dim=-1)
+        loss = task_normalized_weights[0]*loss_classification + task_normalized_weights[1]*loss_ood
         loss.backward()
         optimizer.step()
+        scheduler.step()  # update the steps of cosine annealing every step (over batches.)
         # exponential moving average
         loss_avg = loss_avg * 0.8 + float(loss) * 0.2
     state_report["avg_train_loss"] = loss_avg
@@ -215,7 +227,11 @@ if __name__ == "__main__":
     np.random.seed(SEED)
     torch.backends.cudnn.benchmark = True
     torch.cuda.set_per_process_memory_fraction(HYPS["CUDA_FRACTION"], device=DEVICE)
-    model = get_trained_model(weight_path=TRAINED_WEIGHT_PATH)
+    if GET_ENERGY:
+        model = get_trained_model(weight_path=ENERGY_TRAINED_WEIGHT_PATH)
+    else:
+        model = get_trained_model(weight_path=TRAINED_WEIGHT_PATH)
+
     model = model.to(DEVICE)
     out_dataloaders, in_dataloaders = get_dataloaders()
     if GET_ENERGY:

@@ -108,7 +108,6 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
             model.train() if phase == "train" else model.eval()
             # Get data from dataloader
             running_loss = 0.0
-            running_corrects = 0
             total_labels, total_preds = [], []
             for input_batch, labels_batch in tqdm(dataloaders_val_train[phase]):
                 input_batch, labels_batch = input_batch.to(DEVICE), labels_batch.to(DEVICE)
@@ -137,7 +136,6 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
                         # Normal methods -> 1. loss.backward() & 2. optimizer.step()
                     # update running loss
                 running_loss += loss.item() * batch_size
-                running_corrects += torch.sum(preds_batch == labels_batch.data)
                 total_labels.append(labels_batch.int().cpu().numpy())
                 total_preds.append(preds_batch.int().cpu().numpy())
             if phase == "train":
@@ -157,32 +155,30 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
             # Report the new loss
             epoch_report = f"{phase} -> epoch: {epoch}, loss: {epoch_loss}, accuracy: {epoch_acc}, precision: {epoch_prec}, recall: {epoch_rec}, f1: {epoch_f1}"
             print(epoch_report)
+            save_best_accuracy_model_bool, save_best_f1_model_bool = False, False
             if phase == "val":
                 if epoch_acc > best_acc:
                     # Plot conf matrix.
                     save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_acc_conf_matrix")
-
                     best_acc = epoch_acc
                     best_weights_acc = copy.deepcopy(model.state_dict())
                     best_epoch_report_acc = epoch_report
-                    save_model(
-                        best_weights_acc,
-                        info_str=best_epoch_report_acc,
-                        save_path=acc_weight_path,
-                        log_path=acc_log_path,
-                    )
+                    save_best_accuracy_model_bool = True
+                    
                 if epoch_f1 > best_f1:
                     # Plot conf matrix.
                     save_conf_matrix(total_preds_tensor, total_labels_tensor, log_p, "_f1_conf_matrix")
-
                     best_f1 = epoch_f1
                     best_weights_f1 = copy.deepcopy(model.state_dict())
                     best_epoch_report_f1 = epoch_report
-                    save_model(
-                        best_weights_f1, info_str=best_epoch_report_f1, save_path=f1_weight_path, log_path=f1_log_path
-                    )
+                    save_best_f1_model_bool = True
+                
             epoch_time_elapsed = time.time() - start_timer_epoch
-            print(f"One epoch for {phase} complete in {epoch_time_elapsed // 60:.0f}m {epoch_time_elapsed % 60:.0f}s")
+            print(f"One epoch for {phase} complete in {epoch_time_elapsed // 60:.0f}m {epoch_time_elapsed % 60:.2f}s")
+            if save_best_f1_model_bool:
+                save_model(best_weights_f1, info_str=best_epoch_report_f1, save_path=f1_weight_path, log_path=f1_log_path)
+            if save_best_accuracy_model_bool:
+                save_model(best_weights_acc,best_epoch_report_acc,acc_weight_path,acc_log_path)
 
     total_time_elapsed = time.time() - start_timer_total
     print(f"Training complete in {total_time_elapsed // 60:.0f}m {total_time_elapsed % 60:.0f}s")

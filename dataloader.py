@@ -4,13 +4,11 @@ from torchvision import datasets, transforms
 import yaml
 import albumentations as album
 
-from SSL_OOD.OOD.utils.train_energy import MEAN
-
 # input image size settings
 with open("hyperparameters.yaml", "r") as reader:
     HYPS = yaml.safe_load(reader)
 
-IMG_RES_DICT = {"B0": 224, "B3": 300}
+IMG_RES_DICT = {"B0": 224, "B1": 240, "B3": 300}
 IMG_RES_RESNET = 224
 TEST_AVAILABLE = HYPS["TEST"]
 IGNORE_OTHER = HYPS["IGNORE_OTHER"]

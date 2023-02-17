@@ -10,4 +10,10 @@ I tried to do the same for atis yonelim. However, the sorted order in atis yonel
 - Use different learning rate schedulers. 
 - Add focal loss or another type of loss which takes the per sample imbalance into account.
 
+# Time elapsed for effnetb0 and resnet18 validation epoch:
+
+resnet18 4.2 seconds
+
+effnetb0 5.2 seconds
+
 ## Traing tank classification.

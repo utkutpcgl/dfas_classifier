@@ -4,18 +4,19 @@ GPUS: [0]
 PRETRAINED: true # true daha iyi çalışıyor
 FREEZE: false
 DO_H_FLIP: true
-FROZEN_LAYERS: [1]
-MODEL: "resnet18" # resnet or effnet
+FROZEN_LAYERS: [1,2]
+MODEL: "effnet" # resnet18 or effnet
 model_type: "B0"
 IGNORE_OTHER: false # true works better.
 IMB_POW: 0.5 # Change how much you want to tackle class imbalance.
 ADV_AUG: false
 TEST: false
 DO_NORMALIZE: true
+OTHER_HEAD: false
 
 # Optimizer & LR scheme
 # 128 batch size did not fit.
-batch_size: 300 #1024  # per GPU
+batch_size: 80 #1024  # per GPU
 workers: 4
 
 epochs: 50
@@ -65,8 +66,8 @@ energy_momentum: 0.9 # Was not shared in both papers (this and OE), but was shar
 
 # Specifics hyps.
 # Found values are averge_energy_out:-4.3064958669650935 , averge_energy_in : -5.5923678170122875
-energy_m_in: -10
-energy_m_out: -0
+energy_m_in: -11 #-10
+energy_m_out: 1 #-0
 # DEFAULT values:
 # energy_m_in: -23 # As expected, imposing too small of an energy margin m in for in-distribution data may lead to difficulty in optimization and degradation in performance.
 # energy_m_out: -5 # Paper note:Overall the method is not very sensitive to m out in the range chosen.
@@ -77,3 +78,15 @@ energy_lambda: 0.1
 # Energy threshold for OOD is not deterministic. Here is the explanation, it should be chosen to achieve FPR95: https://github.com/wetliu/energy_ood/issues/8 https://github.com/wetliu/energy_ood/issues/6
 energy_threshold:
 energy_temperature: 1
+
+# Other head training
+# Regular train settings.
+other_head_epochs: 50
+other_head_initial_lr: 0.001 # cosine decay initial max lr 1e-1
+other_head_final_lr: 0.00001 # cosine decayfinal min lr 1e-5
+other_head_batch_size_ID: 64
+other_head_batch_size_OD: 128
+other_head_batch_size_TEST: 200
+other_head_decay: 0.0005
+other_head_momentum: 0.9 # Was not shared in both papers (this and OE), but was shared in code.
+other_head_lambda: 0.1

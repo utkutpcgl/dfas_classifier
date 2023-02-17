@@ -1,7 +1,7 @@
+from pathlib import Path
 import torch
 import numpy as np
-from torchvision import datasets, transforms
-
+from torchvision import datasets
 from display_ood_test_results import show_performance, get_measures, print_measures, print_and_log
 from train_energy import SEED
 from classifier_net import net
@@ -83,38 +83,45 @@ def get_ood_scores(
         return concat(_score).copy()
 
 
-def get_and_print_results(ood_loader, in_score, auroc_list, aupr_list, fpr_list, ResNet, log_path):
-    aurocs, auprs, fprs = [], [], []
+def get_and_print_results(ood_loader, in_score, auroc_list, aupr_list, fpr_list, accuracy_list, ResNet, log_path):
+    aurocs, auprs, fprs, accuracies = [], [], [], []
     out_score = get_ood_scores(ood_loader, ResNet)
     measures = get_measures(-in_score, -out_score)
     aurocs.append(measures[0])
     auprs.append(measures[1])
     fprs.append(measures[2])
-    print_and_log(in_score[:3], out_score[:3], log_path)
+    accuracies.append(measures[3])
+    print_and_log(f"in_score: {in_score[:3]}, out_score: {out_score[:3]}", log_path)
     auroc = np.mean(aurocs)
     aupr = np.mean(auprs)
     fpr = np.mean(fprs)
+    accuracy = np.mean(accuracies)
     auroc_list.append(auroc)
     aupr_list.append(aupr)
     fpr_list.append(fpr)
-    print_measures(auroc, aupr, fpr, log_path=log_path)
+    accuracy_list.append(accuracy)
+    print_measures(auroc, aupr, fpr, accuracy, log_path=log_path)
 
 
 def show_right_wrong_perf(right_score, wrong_score, log_path):
     num_right = len(right_score)
     num_wrong = len(wrong_score)
-    print_and_log("Error Rate {:.2f}".format(100 * num_wrong / (num_wrong + num_right)), log_path)
+    print_and_log("In dist. accuracy {:.2f}".format(100 - 100 * num_wrong / (num_wrong + num_right)), log_path)
     # /////////////// Error Detection ///////////////
     print_and_log("\n\nError Detection", log_path)
     show_performance(wrong_score, right_score, log_path)
 
 
 def get_ood_results(ood_val_loader, in_score, ResNet, log_path, batch_size_test=HYPS["energy_batch_size_TEST"]):
-    auroc_list, aupr_list, fpr_list = [], [], []
+    auroc_list, aupr_list, fpr_list, ood_accuracy_list = [], [], [], []
     print_and_log("\n\Other (OOD) Detection", log_path)
-    get_and_print_results(ood_val_loader, in_score, auroc_list, aupr_list, fpr_list, ResNet, log_path=log_path)
+    get_and_print_results(
+        ood_val_loader, in_score, auroc_list, aupr_list, fpr_list, ood_accuracy_list, ResNet, log_path=log_path
+    )
     print_and_log("\n\nMean Test Results!!!!!", log_path)
-    print_measures(np.mean(auroc_list), np.mean(aupr_list), np.mean(fpr_list), log_path=log_path)
+    print_measures(
+        np.mean(auroc_list), np.mean(aupr_list), np.mean(fpr_list), np.mean(ood_accuracy_list), log_path=log_path
+    )
 
 
 def test_network(ResNet, log_path):
@@ -126,3 +133,12 @@ def test_network(ResNet, log_path):
     in_score, right_score, wrong_score = get_ood_scores(in_dataloader_val, ResNet, in_dist=True)
     show_right_wrong_perf(right_score, wrong_score, log_path)
     get_ood_results(out_dataloader_val, in_score, ResNet, log_path=log_path)
+
+
+if __name__ == "__main__":
+    weight_path = Path(
+        "/home/utku/Documents/repos/dfas_classifier/trained_models/exp_light_dataset_v1_classifier_resnet18_1/light_dataset_v1_classifier_resnet18_f1_energy.pt"
+    )
+    log_path = str(weight_path.with_name(weight_path.stem + "_energy_test_log.txt"))
+    ResNet = get_trained_network(net, weight_path=weight_path)
+    test_network(ResNet=ResNet, log_path=log_path)

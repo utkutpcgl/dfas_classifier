@@ -37,6 +37,7 @@ POSSIBLE_SIG_THRESH_TENSOR = torch.tensor([i / 20 for i in range(20)]).to(DEVICE
 
 
 def print_and_log(message, log_path: str):
+    print(message)
     with open(log_path, "a") as message_appender:
         message_appender.write(message + "\n")
 
@@ -241,12 +242,13 @@ def train_oh(
             state_report=state_report,
         )
         validate_one_epoch(model=model, dataloader_val_in=dataloader_val_in, dataloader_val_out=dataloader_val_out, state_report=state_report)
-        state_report_str = "Epoch {0:3d} | Time {1:5d} | Train Loss {2:.4f} | In Avg. Val Loss {3:.3f} | In Val Accuracy Classification {4:.2f} | Out Avg Val Prec:{5:.2f} Rec:{6:.2f} F1:{7:.2f} Acc:{8:.2f} | Final avg f1:{9:.2f}".format(
+        state_report_str = "Epoch {:3d} | Time {:5d} | Train Loss {:.4f} | In Avg. Val Loss {:.3f} | In Val Accuracy Classification {:.2f} | In Val F1 Classification {:.2f} | Out Avg Val Prec:{:.2f} Rec:{:.2f} F1:{:.2f} Acc:{:.2f} | Final avg f1:{:.2f}".format(
             (epoch + 1),
             int(time.time() - begin_epoch),
             state_report["avg_train_loss"],
             state_report["in_avg_val_loss"],
             state_report["in_val_accuracy_classification"],
+            state_report["in_val_f1_classification"],
             state_report["out_avg_val_precision"],
             state_report["out_avg_val_recall"],
             state_report["out_avg_val_f1"],

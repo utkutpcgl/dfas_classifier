@@ -1,10 +1,14 @@
 import numpy as np
 import sklearn.metrics as sk
+from dataloader import HYPS
+from copy import copy
 
-RECALL_LEVEL_DEFAULT = 0.95
+RECALL_LEVEL_DEFAULT = 0.85
+ENERGY_THRESHOLD = (HYPS["energy_m_in"] + HYPS["energy_m_out"]) / 2
 
 
 def print_and_log(message, log_path: str):
+    print(message)
     with open(log_path, "a") as message_appender:
         message_appender.write(message + "\n")
 
@@ -27,7 +31,12 @@ def stable_cumsum(arr, rtol=1e-05, atol=1e-08):
     return out
 
 
-def fpr_and_fdr_at_recall(y_true, y_score, recall_level=RECALL_LEVEL_DEFAULT, pos_label=None):
+def fpr_and_fdr_at_recall(y_true_np, y_score_np, recall_level=RECALL_LEVEL_DEFAULT, pos_label=None):
+    """y_true are labels and labels[: len(pos)] = 1
+    positives are -in_score, negatives are -out_score, where in_score and out_score are the original energy scores of samples!
+    Strangely the use -score!!!!"""
+    y_true = copy(y_true_np)
+    y_score = copy(y_score_np)
     classes = np.unique(y_true)
     if pos_label is None and not (
         np.array_equal(classes, [0, 1])
@@ -72,6 +81,58 @@ def fpr_and_fdr_at_recall(y_true, y_score, recall_level=RECALL_LEVEL_DEFAULT, po
     return fps[cutoff] / (np.sum(np.logical_not(y_true)))  # , fps[cutoff]/(fps[cutoff] + tps[cutoff])
 
 
+def accuracy_ood(y_true, y_score, energy_threshold=ENERGY_THRESHOLD):
+    """y_true are labels and labels[: len(pos)] = 1
+    positives are -in_score, negatives are -out_score, where in_score and out_score are the original energy scores of samples!
+    Strangely the use -score!!!!"""
+    y_score_energy_score = -y_score
+    classes = np.unique(y_true)
+    if not (
+        np.array_equal(classes, [0, 1])
+        or np.array_equal(classes, [-1, 1])
+        or np.array_equal(classes, [0])
+        or np.array_equal(classes, [-1])
+        or np.array_equal(classes, [1])
+    ):
+        raise ValueError("Data is not binary and pos_label is not specified")
+    pos_label = 1
+
+    # make y_true a boolean vector
+    y_true = y_true == pos_label
+    total_num_of_predictions = len(y_score_energy_score)
+    in_predictions = y_score_energy_score <= energy_threshold
+    correct_predictions = in_predictions == y_true
+
+    accuracy = sum(correct_predictions) / total_num_of_predictions
+    return accuracy
+
+
+def precision_ood(y_true, y_score, energy_threshold=ENERGY_THRESHOLD):
+    """y_true are labels and labels[: len(pos)] = 1
+    positives are -in_score, negatives are -out_score, where in_score and out_score are the original energy scores of samples!
+    Strangely the use -score!!!!"""
+    y_score_energy_score = -y_score
+    classes = np.unique(y_true)
+    if not (
+        np.array_equal(classes, [0, 1])
+        or np.array_equal(classes, [-1, 1])
+        or np.array_equal(classes, [0])
+        or np.array_equal(classes, [-1])
+        or np.array_equal(classes, [1])
+    ):
+        raise ValueError("Data is not binary and pos_label is not specified")
+    pos_label = 1
+
+    # make y_true a boolean vector
+    y_true = y_true == pos_label
+    total_num_of_predictions = len(y_score_energy_score)
+    in_predictions = y_score_energy_score <= energy_threshold
+    correct_predictions = in_predictions == y_true
+
+    accuracy = sum(correct_predictions) / total_num_of_predictions
+    return accuracy
+
+
 def get_measures(_pos, _neg, recall_level=RECALL_LEVEL_DEFAULT):
     pos = np.array(_pos[:]).reshape((-1, 1))
     neg = np.array(_neg[:]).reshape((-1, 1))
@@ -82,8 +143,9 @@ def get_measures(_pos, _neg, recall_level=RECALL_LEVEL_DEFAULT):
     auroc = sk.roc_auc_score(labels, examples)
     aupr = sk.average_precision_score(labels, examples)
     fpr = fpr_and_fdr_at_recall(labels, examples, recall_level)
+    accuracy = accuracy_ood(labels, examples)
 
-    return auroc, aupr, fpr
+    return auroc, aupr, fpr, accuracy
 
 
 def show_performance(pos, neg, method_name="Ours", recall_level=RECALL_LEVEL_DEFAULT, log_path="log"):
@@ -93,19 +155,22 @@ def show_performance(pos, neg, method_name="Ours", recall_level=RECALL_LEVEL_DEF
     :param neg: 0's class scores
     """
 
-    auroc, aupr, fpr = get_measures(pos[:], neg[:], recall_level)
+    auroc, aupr, fpr, accuracy = get_measures(pos[:], neg[:], recall_level)
 
     print_and_log("\t\t\t" + method_name, log_path)
     print_and_log("FPR{:d}:\t\t\t{:.2f}".format(int(100 * recall_level), 100 * fpr), log_path)
     print_and_log("AUROC:\t\t\t{:.2f}".format(100 * auroc), log_path)
     print_and_log("AUPR:\t\t\t{:.2f}".format(100 * aupr), log_path)
+    print_and_log("Accuracy:\t\t\t{:.2f}".format(100 * accuracy), log_path)
     # print_and_log('FDR{:d}:\t\t\t{:.2f}'.format(int(100 * recall_level), 100 * fdr))
 
 
-def print_measures(auroc, aupr, fpr, method_name="Ours", recall_level=RECALL_LEVEL_DEFAULT, log_path="log"):
+def print_measures(auroc, aupr, fpr, accuracy, method_name="Ours", recall_level=RECALL_LEVEL_DEFAULT, log_path="log"):
     print_and_log("\t\t\t\t" + method_name, log_path)
     print_and_log("  FPR{:d} AUROC AUPR".format(int(100 * recall_level)), log_path)
     print_and_log("& {:.2f} & {:.2f} & {:.2f}".format(100 * fpr, 100 * auroc, 100 * aupr), log_path)
+    print_and_log(f"Accuracy at energy_threshold = (m_in + m_out)/2 = {100 * accuracy}", log_path)
+
     # print_and_log('FPR{:d}:\t\t\t{:.2f}'.format(int(100 * recall_level), 100 * fpr))
     # print_and_log('AUROC: \t\t\t{:.2f}'.format(100 * auroc))
     # print_and_log('AUPR:  \t\t\t{:.2f}'.format(100 * aupr))
