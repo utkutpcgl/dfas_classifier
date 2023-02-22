@@ -1,10 +1,10 @@
 CUDA_FRACTION: 0.8
-TASK: "light_dataset_v1" # arac or atis yonelim or tank or TS (traffic sign) or light_dataset_baseline_v1
+TASK: "light_dataset_v1_other_decimated" # arac or atis yonelim or tank or TS (traffic sign) or light_dataset_baseline_v1
 GPUS: [0]
 PRETRAINED: true # true daha iyi çalışıyor
-FREEZE: false
+FREEZE: true
 DO_H_FLIP: true
-FROZEN_LAYERS: [1,2]
+FROZEN_LAYERS: [1]
 MODEL: "effnet" # resnet18 or effnet
 model_type: "B0"
 IGNORE_OTHER: false # true works better.
@@ -25,15 +25,18 @@ epochs: 50
 
 #  0.001 was too much apparently.
 # lr: 0.001
-lr: 0.0002
+# lr_scheduler: 'cosine'
+lr: 0.0004 # Default is :0.0002
+final_lr: 0.00001
+scheduler_epochs: 10
 # lr_scheduler: 'steplr'
-
+# lr_step_size: 20 # update lr every 30 epochs.
+lr_gamma: 0.1
 # Current train hyps
 # lr_step_size: 15
 # lr_gamma: 0.3
 
-lr_step_size: 20
-lr_gamma: 0.1
+
 
 # lr: 0.5
 # lr_scheduler: 'cosineannealinglr'

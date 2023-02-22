@@ -17,3 +17,7 @@ resnet18 4.2 seconds
 effnetb0 5.2 seconds
 
 ## Traing tank classification.
+
+
+### CLASS NAMES WITH ORDER
+{'Tank-M48': 0, 'Tank-M60': 1, 'Tank-leopard': 2}

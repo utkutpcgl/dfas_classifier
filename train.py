@@ -138,8 +138,8 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
                 running_loss += loss.item() * batch_size
                 total_labels.append(labels_batch.int().cpu().numpy())
                 total_preds.append(preds_batch.int().cpu().numpy())
-            if phase == "train":
-                scheduler.step()
+                if phase == "train":
+                    scheduler.step()
 
             # concat over batch dim
             total_labels_tensor = numpy.concatenate(total_labels, axis=0)
@@ -387,9 +387,14 @@ def main(
         )  # Give more importance to doğrultmuş.
     else:
         criterion = torch.nn.CrossEntropyLoss()
-    # TODO cosineannealinglr scheduler can be used for better performance.
-    exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=HYPS["lr_step_size"], gamma=HYPS["lr_gamma"]
+    # Previous schedular
+    # exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
+    #     optimizer, step_size=HYPS["lr_step_size"], gamma=HYPS["lr_gamma"]
+    # )
+    train_loader = DATALOADERS["train"]
+    total_num_steps=len(train_loader)*HYPS["scheduler_epochs"]
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, T_max=total_num_steps, eta_min=HYPS["final_lr"]
     )
     try:
         if test_bool:
@@ -425,7 +430,7 @@ def main(
                 DATALOADERS,
                 criterion=criterion,
                 optimizer=optimizer,
-                scheduler=exp_lr_scheduler,
+                scheduler=scheduler,
                 epochs=epochs,
                 weight_path=weight_path,
                 log_path=log_path,
