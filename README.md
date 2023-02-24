@@ -25,6 +25,7 @@ Yine de, sözde SOTA optimization ve lr scheduling methodları hem daha zor tune
 
 #### Results
 *Dataset*: Traffic light classification dataset.
+
 *Model*: EfficientNet B0
 
 *AdamW* optimizer withtout lr scheduler:
