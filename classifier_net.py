@@ -8,7 +8,7 @@ from typing import OrderedDict
 
 # TODO maybe freeze some layers.
 EFFNET_WEIGHTS_DICT = {"B0": 224, "B1": 240}
-model = HYPS["MODEL"]
+MODEL = HYPS["MODEL"]
 OTHER_HEAD = HYPS["OTHER_HEAD"]
 FROZEN_LAYERS = HYPS["FROZEN_LAYERS"]
 FREEZE = HYPS["FREEZE"]
@@ -38,6 +38,20 @@ def freeze_model_layers(network, initial_layers_count, prefix):
                 freeze_layer = True
         freeze_parameter(param, freeze_layer)
 
+
+class EffNetModel(torch.nn.Module):
+    def __init__(self, EffNet):
+        super(EffNetModel, self).__init__()
+        out_features = EffNet.classifier[1].in_features
+        self.feature_extractor = copy.deepcopy(EffNet)
+        number_of_input_features = out_features
+        hier_classification_head = torch.nn.Linear(in_features=number_of_input_features, out_features=NUMBER_OF_CLASSES)
+        self.feature_extractor.classifier[1] = hier_classification_head
+
+    def forward(self, input_frame):
+        output = self.feature_extractor(input_frame)
+        return output
+
 def get_effnet():
     weights = None
     if MODEL_TYPE == "B1":
@@ -51,41 +65,40 @@ def get_effnet():
     return effnet
 
 class ResNetModel(torch.nn.Module):
-    def __init__(self, feature_extractor):
+    def __init__(self, ResNet):
         super(ResNetModel, self).__init__()
-        # number_of_input_features is 2048 (Resnet50.fc.in_features)
-        self.feature_extractor = copy.deepcopy(feature_extractor)
+        out_features = ResNet.fc.in_features
+        self.feature_extractor = copy.deepcopy(ResNet)
         number_of_input_features = out_features  # 512 for resnet18
-        self.feature_extractor.fc = torch.nn.Linear(number_of_input_features, NUMBER_OF_CLASSES)
+        hier_classification_head = torch.nn.Linear(number_of_input_features, NUMBER_OF_CLASSES)
+        self.feature_extractor.fc = hier_classification_head
 
     def forward(self, input_frame):
         output = self.feature_extractor(input_frame)
         return output
-
-# resnet18
-if model == "resnet18":
+    
+def get_resnet():
     weights = None
     if PRETRAINED:
         weights = torchvision.models.ResNet18_Weights.IMAGENET1K_V1
     ResNet = torchvision.models.resnet18(weights=weights)
+    return ResNet
+
+# resnet18
+if MODEL == "resnet18":
+    ResNet = get_resnet()
     # Freeze first 2 layers
     if FREEZE:
         resnet_initial_layers_count = 3
         freeze_model_layers(ResNet, resnet_initial_layers_count, prefix="layers")
-    out_features = ResNet.fc.in_features
     net = ResNetModel(ResNet)
 # effnet b0
-elif model == "effnet":
-    effnet_single = get_effnet()
+elif MODEL == "effnet":
+    EffNet = get_effnet()
     if FREEZE:
         effnet_initial_layers_count = 3
-        freeze_model_layers(effnet_single, effnet_initial_layers_count, prefix="features.")
-
-    hier_classification_head = torch.nn.Linear(
-        in_features=effnet_single.classifier[1].in_features, out_features=NUMBER_OF_CLASSES
-    )
-    effnet_single.classifier[1] = hier_classification_head
-    net = effnet_single
+        freeze_model_layers(EffNet, effnet_initial_layers_count, prefix="features.")
+    net = EffNetModel(EffNet)
 
 single_net = net.to(DEVICE)
 net = single_net

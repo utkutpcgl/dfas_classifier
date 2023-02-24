@@ -51,6 +51,8 @@ from PIL import Image
 from torchvision.transforms import ToTensor
 from torchvision import transforms
 
+from ranger21 import Ranger21
+
 # device = torch.device("cuda:0" if torch)
 
 
@@ -138,8 +140,8 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
                 running_loss += loss.item() * batch_size
                 total_labels.append(labels_batch.int().cpu().numpy())
                 total_preds.append(preds_batch.int().cpu().numpy())
-                if phase == "train":
-                    scheduler.step()
+                # if phase == "train":
+                #     scheduler.step()
 
             # concat over batch dim
             total_labels_tensor = numpy.concatenate(total_labels, axis=0)
@@ -372,7 +374,10 @@ def main(
     torch.backends.cudnn.benchmark = True
     torch.cuda.set_per_process_memory_fraction(HYPS["CUDA_FRACTION"], device=DEVICE)
     epochs = HYPS["epochs"]
-    optimizer = torch.optim.AdamW(net.parameters(), lr=HYPS["lr"])
+    # optimizer = torch.optim.AdamW(net.parameters(), lr=HYPS["lr"])
+    train_loader = DATALOADERS["train"]
+    num_batches_per_epoch = len(train_loader)
+    optimizer = Ranger21(net.parameters(), lr=HYPS["lr"], num_epochs=epochs, num_batches_per_epoch=num_batches_per_epoch)
     if weighted_class_loss_bool:
         class_weights = calc_class_weights(
             len(C_DICT),
@@ -388,14 +393,13 @@ def main(
     else:
         criterion = torch.nn.CrossEntropyLoss()
     # Previous schedular
-    # exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
-    #     optimizer, step_size=HYPS["lr_step_size"], gamma=HYPS["lr_gamma"]
+    total_num_steps=num_batches_per_epoch*HYPS["scheduler_epochs"]
+    # scheduler = torch.optim.lr_scheduler.StepLR(
+    #     optimizer, step_size=total_num_steps, gamma=HYPS["lr_gamma"]
     # )
-    train_loader = DATALOADERS["train"]
-    total_num_steps=len(train_loader)*HYPS["scheduler_epochs"]
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optimizer, T_max=total_num_steps, eta_min=HYPS["final_lr"]
-    )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optimizer=optimizer, T_max=total_num_steps, eta_min=HYPS["final_lr"]
+    # )
     try:
         if test_bool:
             net.load_state_dict(torch.load(test_weight_path))
@@ -430,7 +434,7 @@ def main(
                 DATALOADERS,
                 criterion=criterion,
                 optimizer=optimizer,
-                scheduler=scheduler,
+                scheduler=None,
                 epochs=epochs,
                 weight_path=weight_path,
                 log_path=log_path,
