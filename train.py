@@ -140,8 +140,8 @@ def train(model, dataloaders_val_train, criterion, optimizer, scheduler, epochs,
                 running_loss += loss.item() * batch_size
                 total_labels.append(labels_batch.int().cpu().numpy())
                 total_preds.append(preds_batch.int().cpu().numpy())
-                # if phase == "train":
-                #     scheduler.step()
+                if phase == "train":
+                    scheduler.step()
 
             # concat over batch dim
             total_labels_tensor = numpy.concatenate(total_labels, axis=0)
@@ -394,9 +394,9 @@ def main(
         criterion = torch.nn.CrossEntropyLoss()
     # Previous schedular
     total_num_steps=num_batches_per_epoch*HYPS["scheduler_epochs"]
-    # scheduler = torch.optim.lr_scheduler.StepLR(
-    #     optimizer, step_size=total_num_steps, gamma=HYPS["lr_gamma"]
-    # )
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=total_num_steps, gamma=HYPS["lr_gamma"]
+    )
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     #     optimizer=optimizer, T_max=total_num_steps, eta_min=HYPS["final_lr"]
     # )
@@ -434,7 +434,7 @@ def main(
                 DATALOADERS,
                 criterion=criterion,
                 optimizer=optimizer,
-                scheduler=None,
+                scheduler=scheduler,
                 epochs=epochs,
                 weight_path=weight_path,
                 log_path=log_path,
