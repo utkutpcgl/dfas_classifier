@@ -7,7 +7,10 @@ I tried to do the same for atis yonelim. However, the sorted order in atis yonel
 
 # Plans to improve the classifier:
 
-- Use different learning rate schedulers. 
+- Train for some epochs, in the final epochs (with low lr) reload the best weights and fine tune the best weights with low learning rates.
+- The model overfits too easily, hence, it should be validated inside of epochs (maybe every half epoch).
+- Use different learning rate schedulers.
+
 ### Using different lr methods:
 Sadece AdamW optimizer ile en iyi sonuçları elde ettim iyi bir learning rate seçtikten sonra ve aşağıda SOTA olarak görülen scheduler'lar ile daha kötü sonuçlar elde ettim (ayırca vakit kaybettim):
 
@@ -33,3 +36,5 @@ effnetb0 5.2 seconds
 
 ### CLASS NAMES WITH ORDER
 {'Tank-M48': 0, 'Tank-M60': 1, 'Tank-leopard': 2}
+
+
