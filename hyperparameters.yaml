@@ -19,16 +19,16 @@ OTHER_HEAD: false
 batch_size: 80 #1024  # per GPU
 workers: 4
 
-epochs: 50
+epochs: 10 # default 50
 # opt: 'sgd'
 # momentum: 0.9
 
 #  0.001 was too much apparently.
 # lr: 0.001
 # lr_scheduler: 'cosine'
-lr: 0.0004 # Default is :0.0002
-final_lr: 0.00001
-scheduler_epochs: 10
+lr: 0.0002 # Default is :0.0002
+final_lr: 0.00002
+scheduler_epochs: 20
 # lr_scheduler: 'steplr'
 # lr_step_size: 20 # update lr every 30 epochs.
 lr_gamma: 0.1

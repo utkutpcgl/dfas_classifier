@@ -38,7 +38,7 @@ Yine de, sözde SOTA optimization ve lr scheduling methodları hem daha zor tune
 *Note:* Results depend on the total number of epochs selected as the warm-up and down iteration starting points are determined accordingly. Too many hyperparameters to fine-tune to achieve optimal results.
 
 *AdamW + cosine* annealing lr scheduler (SGDR: STOCHASTIC GRADIENT DESCENT WITHWARM RESTARTS: https://arxiv.org/pdf/1608.03983.pdf):
-- best f1: f1: 0.916 (with lr=0.0002 at epoch 2)
+- best f1: 0.916 (with lr=0.0002 at epoch 2)
 * Optimal epoch sayısı ve learning rate bulunduğunda scheduler epoch sayısı total epoch sayısına eşit olduğunda en iyi sonuçları almışlar. Asıl özelliği az epoch ile hızlı converge olmak.
 
 
