@@ -9,8 +9,7 @@ I tried to do the same for atis yonelim. However, the sorted order in atis yonel
 
 - Train for some epochs, in the final epochs (with low lr) reload the best weights and fine tune the best weights with low learning rates.
 - The model overfits too easily, hence, it should be validated inside of epochs (maybe every half epoch).
-- Use different learning rate schedulers.
-
+- Add focal loss or another type of loss which takes the per sample imbalance into account.
 ### Using different lr methods:
 Sadece AdamW optimizer ile en iyi sonuçları elde ettim iyi bir learning rate seçtikten sonra ve aşağıda SOTA olarak görülen scheduler'lar ile daha kötü sonuçlar elde ettim (ayırca vakit kaybettim):
 
@@ -23,7 +22,24 @@ Bunu sebebinin verisetimin yeterince büyük ve representative olmamasından kay
 
 Yine de, sözde SOTA optimization ve lr scheduling methodları hem daha zor tune ediliyor hem de daha kötü sonuç verebiliyor.
 
-- Add focal loss or another type of loss which takes the per sample imbalance into account.
+
+#### Results
+*Dataset*: Traffic light classification dataset.
+*Model*: EfficientNet B0
+
+*AdamW* optimizer withtout lr scheduler:
+- best f1: 0.931 (at epoch 9)
+- learning rate: 0.0002
+
+*Ranger21* optimizer (repo: https://github.com/lessw2020/Ranger21) (Adam based but with many intrinsic learning rate scheduling methods, i.e. warm-up, warm-down, lookahead etc.):
+- best f1: 0.921 (at epoch 7) (with total epochs=10, lr=0.0002, all other settings left default.)
+* To many hyperparameters to tune. Changed both warm-up and warm-down (disable/enable), learning rate, epoch numbers.
+*Note:* Results depend on the total number of epochs selected as the warm-up and down iteration starting points are determined accordingly. Too many hyperparameters to fine-tune to achieve optimal results.
+
+*AdamW + cosine* annealing lr scheduler (SGDR: STOCHASTIC GRADIENT DESCENT WITHWARM RESTARTS: https://arxiv.org/pdf/1608.03983.pdf):
+- best f1: f1: 0.916 (with lr=0.0002 at epoch 2)
+* Optimal epoch sayısı ve learning rate bulunduğunda scheduler epoch sayısı total epoch sayısına eşit olduğunda en iyi sonuçları almışlar. Asıl özelliği az epoch ile hızlı converge olmak.
+
 
 # Time elapsed for effnetb0 and resnet18 validation epoch:
 
