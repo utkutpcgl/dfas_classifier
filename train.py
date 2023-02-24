@@ -210,7 +210,6 @@ def test_batch(model, test_dataloader, log_path, criterion, testset_size):
                 loss = criterion(output_batch, labels_batch)
         preds_batch = torch.argmax(output_batch, dim=1)
         running_loss += loss.item() * batch_size
-        corrects = torch.sum(preds_batch == labels_batch.data)
         total_labels.append(labels_batch.int().cpu().numpy())
         total_preds.append(preds_batch.int().cpu().numpy())
 
@@ -258,7 +257,6 @@ def val_batch(model, val_dataloader, log_path, criterion, valset_size):
                 loss = criterion(output_batch, labels_batch)
         preds_batch = torch.argmax(output_batch, dim=1)
         running_loss += loss.item() * batch_size
-        corrects = torch.sum(preds_batch == labels_batch.data)
         total_labels.append(labels_batch.int().cpu().numpy())
         total_preds.append(preds_batch.int().cpu().numpy())
 
