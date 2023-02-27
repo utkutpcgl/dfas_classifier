@@ -62,6 +62,10 @@ def get_effnet():
         if PRETRAINED:
             weights = torchvision.models.EfficientNet_B0_Weights.IMAGENET1K_V1
         effnet = torchvision.models.efficientnet_b0(weights=weights)
+    elif MODEL_TYPE == "s":
+        if PRETRAINED:
+            weights = torchvision.models.EfficientNet_V2_S_Weights.IMAGENET1K_V1
+        effnet = torchvision.models.efficientnet_v2_s(weights=weights)
     return effnet
 
 class ResNetModel(torch.nn.Module):

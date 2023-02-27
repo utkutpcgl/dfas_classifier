@@ -6,7 +6,7 @@ FREEZE: true
 DO_H_FLIP: true
 FROZEN_LAYERS: [1]
 MODEL: "effnet" # resnet18 or effnet
-model_type: "B0"
+model_type: "s" # B0, B1, s (v2)
 IGNORE_OTHER: false # true works better.
 IMB_POW: 0.5 # Change how much you want to tackle class imbalance.
 ADV_AUG: false
@@ -19,7 +19,7 @@ OTHER_HEAD: false
 batch_size: 80 #1024  # per GPU
 workers: 4
 
-epochs: 10 # default 50
+epochs: 20 # default 50
 # opt: 'sgd'
 # momentum: 0.9
 
