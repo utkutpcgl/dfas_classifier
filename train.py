@@ -372,10 +372,10 @@ def main(
     torch.backends.cudnn.benchmark = True
     torch.cuda.set_per_process_memory_fraction(HYPS["CUDA_FRACTION"], device=DEVICE)
     epochs = HYPS["epochs"]
-    # optimizer = torch.optim.AdamW(net.parameters(), lr=HYPS["lr"])
+    optimizer = torch.optim.AdamW(net.parameters(), lr=HYPS["lr"])
     train_loader = DATALOADERS["train"]
     num_batches_per_epoch = len(train_loader)
-    optimizer = Ranger21(net.parameters(), lr=HYPS["lr"], num_epochs=epochs, num_batches_per_epoch=num_batches_per_epoch)
+    # optimizer = Ranger21(net.parameters(), lr=HYPS["lr"], num_epochs=epochs, num_batches_per_epoch=num_batches_per_epoch)
     if weighted_class_loss_bool:
         class_weights = calc_class_weights(
             len(C_DICT),
