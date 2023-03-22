@@ -5,14 +5,15 @@ PRETRAINED: true # true daha iyi çalışıyor
 FREEZE: true
 DO_H_FLIP: true
 FROZEN_LAYERS: [1]
-MODEL: "effnet" # resnet18 or effnet
-model_type: "s" # B0, B1, s (v2)
+MODEL: "resnet18" # resnet18 or effnet
+model_type: "B0" # B0, B1, s (v2)
 IGNORE_OTHER: false # true works better.
 IMB_POW: 0.5 # Change how much you want to tackle class imbalance.
 ADV_AUG: false
 TEST: false
 DO_NORMALIZE: true
 OTHER_HEAD: false
+LUKE: false # Whether to use luke or not?
 
 # Optimizer & LR scheme
 # 128 batch size did not fit.
@@ -35,8 +36,6 @@ lr_gamma: 0.1
 # Current train hyps
 # lr_step_size: 15
 # lr_gamma: 0.3
-
-
 
 # lr: 0.5
 # lr_scheduler: 'cosineannealinglr'

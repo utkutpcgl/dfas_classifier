@@ -7,6 +7,7 @@ from dataloader import DEVICE, GPU_IDS, C_DICT, HYPS
 from typing import OrderedDict
 
 # TODO maybe freeze some layers.
+LUKE = HYPS["LUKE"]
 EFFNET_WEIGHTS_DICT = {"B0": 224, "B1": 240}
 MODEL = HYPS["MODEL"]
 OTHER_HEAD = HYPS["OTHER_HEAD"]
@@ -40,28 +41,38 @@ def freeze_model_layers(network, initial_layers_count, prefix):
 
 
 class EffNetModel(torch.nn.Module):
-    def __init__(self, EffNet):
+    def __init__(self, EffNet, luke):
         super(EffNetModel, self).__init__()
-        out_features = EffNet.classifier[1].in_features
+        if luke:
+            out_features = EffNet._fc.in_features
+        else:
+            out_features = EffNet.classifier[1].in_features
         self.feature_extractor = copy.deepcopy(EffNet)
         number_of_input_features = out_features
         hier_classification_head = torch.nn.Linear(in_features=number_of_input_features, out_features=NUMBER_OF_CLASSES)
-        self.feature_extractor.classifier[1] = hier_classification_head
+        if luke:
+            self.feature_extractor._fc = hier_classification_head
+        else:
+            self.feature_extractor.classifier[1] = hier_classification_head
 
     def forward(self, input_frame):
         output = self.feature_extractor(input_frame)
         return output
 
-def get_effnet():
+def get_effnet(luke):
     weights = None
     if MODEL_TYPE == "B1":
         if PRETRAINED:
             weights = torchvision.models.EfficientNet_B1_Weights.IMAGENET1K_V2
         effnet = torchvision.models.efficientnet_b1(weights=weights)
     elif MODEL_TYPE == "B0":
-        if PRETRAINED:
-            weights = torchvision.models.EfficientNet_B0_Weights.IMAGENET1K_V1
-        effnet = torchvision.models.efficientnet_b0(weights=weights)
+        if luke:
+            from efficientnet_pytorch import EfficientNet
+            effnet = EfficientNet.from_pretrained('efficientnet-b0')
+        else:
+            if PRETRAINED:
+                weights = torchvision.models.EfficientNet_B0_Weights.IMAGENET1K_V1
+            effnet = torchvision.models.efficientnet_b0(weights=weights)
     elif MODEL_TYPE == "s":
         if PRETRAINED:
             weights = torchvision.models.EfficientNet_V2_S_Weights.IMAGENET1K_V1
@@ -98,11 +109,12 @@ if MODEL == "resnet18":
     net = ResNetModel(ResNet)
 # effnet b0
 elif MODEL == "effnet":
-    EffNet = get_effnet()
+    prefix = LUKE*"_blocks." + (not LUKE)*"features." # TODO check if this is correct.
+    EffNet = get_effnet(luke=LUKE)
     if FREEZE:
         effnet_initial_layers_count = 3
-        freeze_model_layers(EffNet, effnet_initial_layers_count, prefix="features.")
-    net = EffNetModel(EffNet)
+        freeze_model_layers(EffNet, effnet_initial_layers_count, prefix=prefix)
+    net = EffNetModel(EffNet, luke=LUKE)
 
 single_net = net.to(DEVICE)
 net = single_net

@@ -7,9 +7,11 @@ I tried to do the same for atis yonelim. However, the sorted order in atis yonel
 
 # Plans to improve the classifier:
 
+- *Choosing the mean and std from imagenet is actually common practice. But calculating mean and variance might give better perfromance.*
 - Train for some epochs, in the final epochs (with low lr) reload the best weights and fine tune the best weights with low learning rates.
 - The model overfits too easily, hence, it should be validated inside of epochs (maybe every half epoch).
 - Add focal loss or another type of loss which takes the per sample imbalance into account.
+
 ### Using different lr methods:
 Sadece AdamW optimizer ile en iyi sonuçları elde ettim iyi bir learning rate seçtikten sonra ve aşağıda SOTA olarak görülen scheduler'lar ile daha kötü sonuçlar elde ettim (ayırca vakit kaybettim):
 
@@ -23,7 +25,7 @@ Bunu sebebinin verisetimin yeterince büyük ve representative olmamasından kay
 Yine de, sözde SOTA optimization ve lr scheduling methodları hem daha zor tune ediliyor hem de daha kötü sonuç verebiliyor.
 
 
-#### Results
+## OOD Results
 *Dataset*: Traffic light classification dataset.
 
 *Model*: EfficientNet B0
@@ -42,16 +44,22 @@ Yine de, sözde SOTA optimization ve lr scheduling methodları hem daha zor tune
 * Optimal epoch sayısı ve learning rate bulunduğunda scheduler epoch sayısı total epoch sayısına eşit olduğunda en iyi sonuçları almışlar. Asıl özelliği az epoch ile hızlı converge olmak.
 
 
+## Traffic Light Results
+- Efficient net luke melas (git) results are bad. 
+- The current best models imbalance hyp gave good/best results overall. 
+- Resnet18 and Effnetb0 results are almost the same. (Hence, no need as effnet is slightly slower.)
+
+
 # Time elapsed for effnetb0 and resnet18 validation epoch:
 
-resnet18 4.2 seconds
-
-effnetb0 5.2 seconds
+* resnet18 4.2 seconds
+* effnetb0 5.2 seconds
 
 ## Traing tank classification.
 
 
 ### CLASS NAMES WITH ORDER
-{'Tank-M48': 0, 'Tank-M60': 1, 'Tank-leopard': 2}
+- {'Tank-M48': 0, 'Tank-M60': 1, 'Tank-leopard': 2}
+- {'Green': 0, 'Red': 1, 'other': 2}
 
 

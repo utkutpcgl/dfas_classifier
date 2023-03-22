@@ -79,10 +79,7 @@ def load_state_dict(model, model_state_dict, luke):
         # create new OrderedDict that does not contain `module.`
         new_state_dict = OrderedDict()
         for k, v in model_state_dict.items():
-            if luke:
-                name = k[7:]  # remove `module.`
-            else:
-                name = "feature_extractor." + k[7:]  # remove `module.`
+            name = k[7:]  # remove `module.` (change if necessary)
             new_state_dict[name] = v
         # load params
         model.load_state_dict(new_state_dict)

@@ -47,7 +47,7 @@ RAND_SHARP = transforms.RandomAdjustSharpness(sharpness_factor=0.7, p=0.2)
 RAND_AUTOCONTR = transforms.RandomAutocontrast(p=0.2)
 RAND_EQUALIZE = transforms.RandomEqualize(p=0.2)
 # Final transformations.
-MEAN = [0.485, 0.456, 0.406]
+MEAN = [0.485, 0.456, 0.406] # Choosing the mean and std from imagenet is actually common practice. But calculating mean and variance might give better perfromance.
 STD = [0.229, 0.224, 0.225]
 NORMALIZE = transforms.Normalize(MEAN, STD)
 TO_TENSOR = transforms.ToTensor()
@@ -74,7 +74,7 @@ if ADVANCED_AUG:
             RAND_EQUALIZE,
         ]
     )
-train_transforms.extend([TO_TENSOR, NORMALIZE])
+train_transforms.extend([TO_TENSOR]) # Converts 0-255 image between 0-1
 if DO_NORMALIZE:
     # NOTE normalization is curcial (created 20% accuracy difference.)
     train_transforms.append(NORMALIZE)
